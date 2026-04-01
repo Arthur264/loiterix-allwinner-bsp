@@ -12,6 +12,7 @@ refind_root()
 	local BOOT_EMMC=/dev/mmcblk0
 	local BOOT_NOR=/dev/mtdblock0
 	local BOOT_UFS=/dev/sda
+	local BOOT_NVME=/dev/nvme0n1
 
 	rootfs_dir="$BOOT_EMMC $BOOT_UFS $BOOT_NOR $BOOT_NAND"
 
@@ -160,6 +161,16 @@ load_ufs()
 	fi
 }
 
+load_nvme()
+{
+	wait_for_ready $1
+	if [ $? -eq 0 ]; then
+		local root_dev=$(refind_root)
+		[ -z "$root_dev" ] && root_dev=$1
+		do_mount $root_dev
+	fi
+}
+
 load_mtdblock()
 {
 	echo [$0]: Try to load nor ...
@@ -193,6 +204,9 @@ case $ROOT_DEVICE in
 		;;
 	/dev/sda*)
 		load_ufs $ROOT_DEVICE
+		;;
+	/dev/nvme*)
+		load_nvme $ROOT_DEVICE
 		;;
 	/dev/mtdblock*)
 		load_mtdblock $ROOT_DEVICE

@@ -7,5 +7,6 @@ source "$(BSP_TOP)platform/Kconfig.debug"
 source "$(BSP_TOP)drivers/Kconfig"
 source "$(BSP_TOP)modules/nand/Kconfig"
 source "$(BSP_TOP)modules/gpu/Kconfig"
+source "$(BSP_TOP)modules/computecard/Kconfig"
 
 endmenu
