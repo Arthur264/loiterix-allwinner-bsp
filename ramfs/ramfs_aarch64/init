@@ -11,10 +11,11 @@ refind_root()
 	local BOOT_NAND=/dev/nand0
 	local BOOT_EMMC=/dev/mmcblk0
 	local BOOT_NOR=/dev/mtdblock0
+	local BOOT_UBI=/dev/ubi0_0
 	local BOOT_UFS=/dev/sda
 	local BOOT_NVME=/dev/nvme0n1
 
-	rootfs_dir="$BOOT_EMMC $BOOT_UFS $BOOT_NOR $BOOT_NAND"
+	rootfs_dir="$BOOT_EMMC $BOOT_UFS $BOOT_UBI $BOOT_NOR $BOOT_NAND"
 
 	for dir in ${rootfs_dir}; do
 		if [ "${dir}" == "${BOOT_UFS}" ]; then
@@ -54,6 +55,11 @@ if [ "x$ROOT_DEVICE" = "x" ]; then
 fi
 
 echo [$0]: "getty is $CONSOLE_DEVICE"
+case $ROOT_DEVICE in
+	ubi*)
+		ROOT_DEVICE="/dev/$ROOT_DEVICE"
+		;;
+esac
 echo [$0]: RootDevice is \"$ROOT_DEVICE\" , GPT_SUPPORT=$GPT_SUPPORT
 
 #set the default device for autoconfig
@@ -72,7 +78,7 @@ wait_for_ready()
 {
 	CNT=10
 	while true; do
-		if [ -b $1 ]; then
+		if [ -e $1 ]; then
 			return 0
 		fi
 
@@ -91,6 +97,9 @@ wait_for_ready()
 do_mount()
 {
 case $1 in
+	/dev/ubi*)
+		mount -o rw,noatime,nodiratime,norelatime -t ubifs $1 /mnt
+		;;
 	/dev/mtdblock*)
 		mount -o ro,noatime,nodiratime,norelatime -t squashfs $1 /mnt
 		;;
@@ -161,6 +170,18 @@ load_ufs()
 	fi
 }
 
+load_ubi()
+{
+	echo [$0]: Try to load ubifs ...
+
+	wait_for_ready $1
+	if [ $? -eq 0 ]; then
+		local root_dev=$(refind_root)
+		[ -z "$root_dev" ] && root_dev=$1
+		do_mount $root_dev
+	fi
+}
+
 load_nvme()
 {
 	wait_for_ready $1
@@ -201,6 +222,9 @@ case $ROOT_DEVICE in
 		;;
 	/dev/mmc*)
 		load_emmc $ROOT_DEVICE
+		;;
+	/dev/ubi*)
+		load_ubi $ROOT_DEVICE
 		;;
 	/dev/sda*)
 		load_ufs $ROOT_DEVICE

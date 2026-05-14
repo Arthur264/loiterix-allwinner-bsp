@@ -8,8 +8,13 @@ menu "SOUND Drivers"
 	depends on AW_BSP
 
 if SND_SOC
+	if ARCH_SUN60IW3
+		source "$(BSP_TOP)drivers/sound/ahub/Kconfig"
+	endif
+	if !ARCH_SUN60IW3
+		source "$(BSP_TOP)drivers/sound/platform/Kconfig"
+	endif
 	source "$(BSP_TOP)drivers/sound/codecs/Kconfig"
-	source "$(BSP_TOP)drivers/sound/platform/Kconfig"
 	source "$(BSP_TOP)drivers/sound/misc/Kconfig"
 	source "$(BSP_TOP)drivers/sound/pa/Kconfig"
 endif

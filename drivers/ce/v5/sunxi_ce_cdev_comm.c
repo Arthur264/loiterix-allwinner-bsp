@@ -33,7 +33,7 @@
 
 extern sunxi_ce_cdev_t	*ce_cdev;
 
-void ce_print_task_desc(ce_task_desc_t *task)
+static void ce_print_task_desc(ce_task_desc_t *task)
 {
 	int i;
 	u64 phy_addr;
@@ -260,6 +260,15 @@ static int ce_task_data_init(crypto_aes_req_ctx_t *req, phys_addr_t src_phy,
 				ptask->ce_sg[i].dst_len = last_data_len;
 				ptask->data_len += last_data_len;
 				ptask->comm_ctl |= CE_COMM_CTL_TASK_INT_MASK;
+				if (req->aes_mode == SS_AES_MODE_CBC_MAC) {
+					if ((ptask->comm_ctl & SS_COMM_CTRL_ALG_TYPE_MASK) == SS_METHOD_DES) {
+						task->comm_ctl |= SS_DES_CBC_MAC_LEN << SS_CBC_MAC_LEN_OFFSET;
+						task->ce_sg[i].dst_len = SS_DES_CBC_MAC_LEN / 8;
+					} else {
+						task->comm_ctl |= SS_AES_CBC_MAC_LEN << SS_CBC_MAC_LEN_OFFSET;
+						task->ce_sg[i].dst_len = SS_AES_CBC_MAC_LEN / 8;
+					}
+				}
 				/* ptask->next = NULL; */
 				break;
 			}
@@ -304,10 +313,11 @@ static int aes_crypto_start(crypto_aes_req_ctx_t *req, u8 *src_buffer,
 
 	/* task_key_set */
 	if (req->key_length) {
-		key_phy = dma_map_single(ce_cdev->pdevice,
-					req->key_buffer, req->key_length, DMA_TO_DEVICE);
 		SS_DBG("key = 0x%px, key_phy_addr = 0x%px\n", req->key_buffer, (void *)key_phy);
 		ss_key_set(req->key_buffer, req->key_length, task);
+		/*All key operations must be completed before cache flush.*/
+		key_phy = dma_map_single(ce_cdev->pdevice,
+						req->key_buffer, req->key_length, DMA_TO_DEVICE);
 	}
 
 	SS_DBG("ion_flag = %d padding_flag =%d", req->ion_flag, padding_flag);
@@ -369,7 +379,6 @@ static int aes_crypto_start(crypto_aes_req_ctx_t *req, u8 *src_buffer,
 out:
 	ss_irq_disable(channel_id);
 	ce_task_destroy(task);
-	ce_reset();
 
 	/* key */
 	if (req->key_length) {
@@ -541,7 +550,7 @@ static void ce_task_rsa_init(crypto_rsa_req_ctx_t *req, phys_addr_t pkey_phy,
 	ss_data_len_set(data_len, ptask);
 }
 
-void ce_rsa_task_print(crypto_rsa_req_ctx_t *rsa_ctx)
+static void ce_rsa_task_print(crypto_rsa_req_ctx_t *rsa_ctx)
 {
 	crypto_rsa_req_ctx_t *rsa_req_ctx = rsa_ctx;
 	pr_err("the rsa task");
@@ -561,7 +570,7 @@ void ce_rsa_task_print(crypto_rsa_req_ctx_t *rsa_ctx)
 	pr_err("[channel_id] %d\n", rsa_req_ctx->channel_id);
 }
 
-void ce_rsa_task_description_print(ce_task_desc_t *task)
+static void ce_rsa_task_description_print(ce_task_desc_t *task)
 {
 	int i;
 	ce_task_desc_t *ptask = task;
@@ -715,7 +724,9 @@ int do_ecc_crypto(crypto_ecc_req_ctx_t *req)
 	phys_addr_t src_phy;
 	ce_task_desc_t *task;
 
-	ecc_byte_size = req->width / 8;
+	ecc_byte_size = req->width / BITS_PER_BYTE;
+	if (req->width == CE_ECC_WIDTH_521)
+		ecc_byte_size = CE_ECC_521_WORD_NUM * BYTES_PER_WORD;
 
 	task = ce_alloc_task();
 	if (!task) {
@@ -724,15 +735,19 @@ int do_ecc_crypto(crypto_ecc_req_ctx_t *req)
 
 	ce_ecc_config(req, task);
 
-	key_phy = dma_map_single(ce_cdev->pdevice, req->key_buffer,
-				  req->key_length, DMA_TO_DEVICE);
-	SS_DBG("pkey = 0x%px, key_phy_addr = 0x%px\n", req->key_buffer,
-	       (void *)key_phy);
+	if (req->key_length) {
+		key_phy = dma_map_single(ce_cdev->pdevice, req->key_buffer,
+					  req->key_length, DMA_TO_DEVICE);
+		SS_DBG("pkey = 0x%px, key_phy_addr = 0x%px\n", req->key_buffer,
+		       (void *)key_phy);
+	}
 
-	iv_phy = dma_map_single(ce_cdev->pdevice, req->iv_buffer,
-				  req->iv_length, DMA_TO_DEVICE);
-	SS_DBG("sign = 0x%px, iv_phy_addr = 0x%px\n", req->iv_buffer,
-	       (void *)iv_phy);
+	if (req->iv_length) {
+		iv_phy = dma_map_single(ce_cdev->pdevice, req->iv_buffer,
+					  req->iv_length, DMA_TO_DEVICE);
+		SS_DBG("sign = 0x%px, iv_phy_addr = 0x%px\n", req->iv_buffer,
+		       (void *)iv_phy);
+	}
 
 	dst_phy = dma_map_single(ce_cdev->pdevice, req->dst_buffer,
 				 req->dst_length, DMA_FROM_DEVICE);
@@ -867,11 +882,13 @@ int do_ecc_crypto(crypto_ecc_req_ctx_t *req)
 	err = 0;
 out:
 	/* key */
-	dma_unmap_single(ce_cdev->pdevice, key_phy, req->key_length,
-			 DMA_TO_DEVICE);
+	if (key_phy)
+		dma_unmap_single(ce_cdev->pdevice, key_phy, req->key_length,
+				 DMA_TO_DEVICE);
 	/* iv */
-	dma_unmap_single(ce_cdev->pdevice, iv_phy, req->iv_length,
-			 DMA_TO_DEVICE);
+	if (iv_phy)
+		dma_unmap_single(ce_cdev->pdevice, iv_phy, req->iv_length,
+				 DMA_TO_DEVICE);
 
 	/* dst */
 	dma_unmap_single(ce_cdev->pdevice, dst_phy, req->dst_length,
@@ -1003,7 +1020,7 @@ static void ce_task_hash_rng_destroy(ce_new_task_desc_t *task)
 	return;
 }
 
-void ce_hash_rng_task_desc_print(ce_new_task_desc_t *task)
+static void ce_hash_rng_task_desc_print(ce_new_task_desc_t *task)
 {
 	int i;
 	ce_new_task_desc_t *ptask = task;
@@ -1030,7 +1047,7 @@ void ce_hash_rng_task_desc_print(ce_new_task_desc_t *task)
 	}
 }
 
-int hash_crypto_start(crypto_hash_req_ctx_t *req)
+static int hash_crypto_start(crypto_hash_req_ctx_t *req)
 {
 	int ret;
 	phys_addr_t key_phy = 0;
