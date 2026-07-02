@@ -194,7 +194,7 @@ static int et7304_start_drp_toggling(struct tcpci *tcpci,
 {
 	struct et7304_chip *chip = tdata_to_et7304(tdata);
 	int ret;
-	unsigned int reg = 0;
+	unsigned int reg = TCPC_ROLE_CTRL_DRP;
 
 	switch (cc) {
 	default:
@@ -224,34 +224,26 @@ static int et7304_start_drp_toggling(struct tcpci *tcpci,
 		return ret;
 	usleep_range(500, 1000);
 
-	return 0;
+	return et7304_write8(chip, TCPC_COMMAND, TCPC_CMD_LOOK4CONNECTION);
 }
 
 static irqreturn_t et7304_irq(int irq, void *dev_id)
 {
 	struct et7304_chip *chip = dev_id;
-#if 0
-	int ret;
-	u16 alert;
-	u8 status;
+	u16 alert = 0;
+	u8 cc_status = 0, power_status = 0, role_ctrl = 0;
 
-	ret = et7304_read16(chip, TCPC_ALERT, &alert);
-	if (ret < 0)
-		goto out;
+	et7304_read16(chip, TCPC_ALERT, &alert);
+	et7304_read8(chip, TCPC_CC_STATUS, &cc_status);
+	et7304_read8(chip, TCPC_POWER_STATUS, &power_status);
+	et7304_read8(chip, TCPC_ROLE_CTRL, &role_ctrl);
+	dev_info(chip->dev,
+		 "et7304 irq alert=0x%04x cc=0x%02x power=0x%02x role=0x%02x\n",
+		 alert, cc_status, power_status, role_ctrl);
 
-	if (alert & TCPC_ALERT_CC_STATUS) {
-		ret = et7304_read8(chip, TCPC_CC_STATUS, &status);
-		if (ret < 0)
-			goto out;
-		/* Clear cc change event triggered by starting toggling */
-		if (status & TCPC_CC_STATUS_TOGGLING)
-			et7304_write8(chip, TCPC_ALERT, TCPC_ALERT_CC_STATUS);
-	}
-#else
 	queue_delayed_work(system_power_efficient_wq, &chip->wq_detcable,
 		chip->debounce_jiffies);
-#endif
-out:
+
 	return tcpci_irq(chip->tcpci);
 }
 
