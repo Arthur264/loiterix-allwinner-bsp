@@ -244,6 +244,9 @@ static irqreturn_t et7304_irq(int irq, void *dev_id)
 	queue_delayed_work(system_power_efficient_wq, &chip->wq_detcable,
 		chip->debounce_jiffies);
 
+	if (alert & (TCPC_ALERT_TX_FAILED | TCPC_ALERT_TX_DISCARDED))
+		et7304_write8(chip, TCPC_COMMAND, TCPC_CMD_RESETTRANSMITBUFFER);
+
 	return tcpci_irq(chip->tcpci);
 }
 
