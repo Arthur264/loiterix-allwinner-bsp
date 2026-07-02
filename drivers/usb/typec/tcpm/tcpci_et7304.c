@@ -247,6 +247,10 @@ static irqreturn_t et7304_irq(int irq, void *dev_id)
 	if (alert & (TCPC_ALERT_TX_FAILED | TCPC_ALERT_TX_DISCARDED))
 		et7304_write8(chip, TCPC_COMMAND, TCPC_CMD_RESETTRANSMITBUFFER);
 
+	/* Give the chip time to settle after RX before TX */
+	if (alert & TCPC_ALERT_RX_STATUS)
+		usleep_range(200, 300);
+
 	return tcpci_irq(chip->tcpci);
 }
 
