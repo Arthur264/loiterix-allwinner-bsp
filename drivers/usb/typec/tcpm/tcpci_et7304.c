@@ -194,7 +194,7 @@ static int et7304_start_drp_toggling(struct tcpci *tcpci,
 {
 	struct et7304_chip *chip = tdata_to_et7304(tdata);
 	int ret;
-	unsigned int reg = 0;
+	unsigned int reg = TCPC_ROLE_CTRL_DRP;
 
 	switch (cc) {
 	default:
@@ -224,7 +224,7 @@ static int et7304_start_drp_toggling(struct tcpci *tcpci,
 		return ret;
 	usleep_range(500, 1000);
 
-	return 0;
+	return et7304_write8(chip, TCPC_COMMAND, TCPC_CMD_LOOK4CONNECTION);
 }
 
 static irqreturn_t et7304_irq(int irq, void *dev_id)
