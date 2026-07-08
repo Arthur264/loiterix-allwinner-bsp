@@ -439,6 +439,11 @@ int sunxi_hdmi_audio_set_info(hdmi_audio_t *info)
 		return -1;
 	}
 
+	if (!sunxi_hdmi) {
+		hdmi_err("sunxi hdmi dev is null, audio set info skip\n");
+		return -ENODEV;
+	}
+
 	data.mInterfaceType     = info->hw_intf;
 	data.mCodingType        = info->data_raw;
 	data.mSamplingFrequency = info->sample_rate;
@@ -459,6 +464,12 @@ int sunxi_hdmi_audio_set_info(hdmi_audio_t *info)
 int sunxi_hdmi_audio_enable(void)
 {
 	int ret = 0;
+
+	if (!sunxi_hdmi) {
+		hdmi_err("sunxi hdmi dev is null, audio enable skip\n");
+		return -ENODEV;
+	}
+
 	mutex_lock(&sunxi_hdmi->lock_config);
 	ret = dw_audio_on();
 	mutex_unlock(&sunxi_hdmi->lock_config);
