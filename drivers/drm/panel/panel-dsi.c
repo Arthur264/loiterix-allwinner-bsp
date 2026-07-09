@@ -592,6 +592,7 @@ static int panel_dsi_parse_dt(struct panel_dsi *dsi_panel)
 				kfree(gpio_name);
 				return ret;
 			}
+			dsi_panel->enable_gpio[i] = NULL;
 		}
 		kfree(gpio_name);
 	}
@@ -604,6 +605,7 @@ static int panel_dsi_parse_dt(struct panel_dsi *dsi_panel)
 			dev_err(dsi_panel->dev, "failed to request %s GPIO: %d\n", "reset", ret);
 			return ret;
 		}
+		dsi_panel->reset_gpio = NULL;
 	}
 
 	of_property_read_u32(np, "dsc,vrr-setp", &dsi_panel->vrr_setp);
