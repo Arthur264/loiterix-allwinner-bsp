@@ -1207,9 +1207,9 @@ s32 edp_link_eq_training(struct sunxi_edp_hw_desc *edp_hw, struct edp_tx_core *e
 
 	EDP_ERR("EQ training result: lane0:%s lane1:%s lane2:%s lane3:%s align:%s\n",
 		fail_lane & (1 << 0) ? "FAIL" : "PASS",
-		fail_lane & (1 << 1) ? "FAIL" : "PASS",
-		fail_lane & (1 << 2) ? "FAIL" : "PASS",
-		fail_lane & (1 << 3) ? "FAIL" : "PASS",
+		lane_count > 1 ? (fail_lane & (1 << 1) ? "FAIL" : "PASS") : "N/A",
+		lane_count > 2 ? (fail_lane & (1 << 2) ? "FAIL" : "PASS") : "N/A",
+		lane_count > 3 ? (fail_lane & (1 << 3) ? "FAIL" : "PASS") : "N/A",
 		fail_lane & (1 << 8) ? "FAIL" : "PASS");
 	EDP_ERR("retry 5 times but still fail, training2(equalization training) fail!\n");
 	return RET_FAIL;
@@ -1256,9 +1256,9 @@ s32 edp_fast_link_train(struct sunxi_edp_hw_desc *edp_hw, struct edp_tx_core *ed
 		if (!edp_eq_training_done(link_status, lane_count, &fail_lane)) {
 			EDP_ERR("EQ training result: lane0:%s lane1:%s lane2:%s lane3:%s align:%s\n",
 				fail_lane & (1 << 0) ? "FAIL" : "PASS",
-				fail_lane & (1 << 1) ? "FAIL" : "PASS",
-				fail_lane & (1 << 2) ? "FAIL" : "PASS",
-				fail_lane & (1 << 3) ? "FAIL" : "PASS",
+				lane_count > 1 ? (fail_lane & (1 << 1) ? "FAIL" : "PASS") : "N/A",
+				lane_count > 2 ? (fail_lane & (1 << 2) ? "FAIL" : "PASS") : "N/A",
+				lane_count > 3 ? (fail_lane & (1 << 3) ? "FAIL" : "PASS") : "N/A",
 				fail_lane & (1 << 8) ? "FAIL" : "PASS");
 			EDP_ERR("edp fast train fail in training2");
 			return RET_FAIL;
@@ -1307,6 +1307,40 @@ s32 edp_link_training(struct sunxi_edp_hw_desc *edp_hw, struct edp_tx_core *edp_
 		return edp_full_link_train(edp_hw, edp_core);
 }
 
+static s32 edp_link_training_with_fallback(struct sunxi_edp_hw_desc *edp_hw,
+					   struct edp_tx_core *edp_core)
+{
+	u64 original_rate = edp_core->lane_para.bit_rate;
+	s32 ret;
+
+	ret = edp_link_training(edp_hw, edp_core);
+	if (ret >= 0 || !edp_core->controller_mode ||
+	    original_rate != BIT_RATE_5G4)
+		return ret;
+
+	/*
+	 * A marginal HBR2 link may finish clock recovery and channel
+	 * equalization on every lane, but never assert inter-lane alignment.
+	 * Retry a complete training sequence at HBR when the current mode still
+	 * fits.  Do not hide a failed training result or lower the rate when HBR
+	 * cannot carry the selected mode.
+	 */
+	edp_core->lane_para.bit_rate = BIT_RATE_2G7;
+	if (edp_hw_query_current_pixclk(edp_core, &edp_core->timings) < 0) {
+		edp_core->lane_para.bit_rate = original_rate;
+		return ret;
+	}
+
+	EDP_WRN("link training failed at %lld, retry at %lld\n",
+		original_rate, edp_core->lane_para.bit_rate);
+	edp_lane_training_para_reset(&edp_core->lane_para);
+	ret = edp_full_link_train(edp_hw, edp_core);
+	if (ret < 0)
+		edp_core->lane_para.bit_rate = original_rate;
+
+	return ret;
+}
+
 s32 edp_main_link_setup(struct sunxi_edp_hw_desc *edp_hw, struct edp_tx_core *edp_core,
 			bool bypass, bool force_level)
 {
@@ -1334,7 +1368,7 @@ s32 edp_main_link_setup(struct sunxi_edp_hw_desc *edp_hw, struct edp_tx_core *ed
 		edp_phy_set_lane_para(edp_core);
 		edp_hw_set_lane_para(edp_hw, edp_core);
 	} else {
-		ret = edp_link_training(edp_hw, edp_core);
+		ret = edp_link_training_with_fallback(edp_hw, edp_core);
 		if (ret < 0)
 			return ret;
 	}
