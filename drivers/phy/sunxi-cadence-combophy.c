@@ -3270,8 +3270,8 @@ static int sunxi_cadence_combo0_usb_phy_set_mode(struct phy *phy, enum phy_mode 
 		if ((combo0->orientation != orientation) || (combo0->state != state)) {
 			combo0->orientation = orientation;
 			combo0->state = state;
-
-			combo0_usb_param_config(combo0);
+			if (sunxi_cphy->usb_mode == USB3_U2U3_BOTH || sunxi_cphy->usb_mode == USB3_U3_ONLY)
+				combo0_usb_param_config(combo0);
 		}
 		combo0->orientation = orientation;
 		combo0->state = state;
@@ -3286,7 +3286,8 @@ static int sunxi_cadence_combo0_usb_phy_set_mode(struct phy *phy, enum phy_mode 
 		 */
 		if (combo0->orientation == TYPEC_ORIENTATION_NONE) {
 			combo0->orientation = orientation;
-			combo0_usb_param_config(combo0);
+			if (sunxi_cphy->usb_mode == USB3_U2U3_BOTH || sunxi_cphy->usb_mode == USB3_U3_ONLY)
+				combo0_usb_param_config(combo0);
 		} else if (orientation != TYPEC_ORIENTATION_NONE) {
 			combo0->orientation = orientation;
 		}
@@ -4360,7 +4361,8 @@ static int sunxi_cadence_phy_parse_dt(struct platform_device *pdev)
 	sunxi_cphy->usb_supported = !device_property_read_bool(dev, "usb-disable");
 	if (sunxi_cphy->usb_supported) {
 		device_property_read_u32(dev, "usb-mode", &sunxi_cphy->usb_mode);
-		if (!sunxi_cphy->usb_mode) {
+		dev_info(dev, "get usb-mode : %d\n", sunxi_cphy->usb_mode);
+		if (sunxi_cphy->usb_mode) {
 			sunxi_cphy->usb_u2_pipe_clk = devm_clk_get(dev, "usb-u2-pipe-clk");
 			if (IS_ERR(sunxi_cphy->usb_u2_pipe_clk)) {
 				return dev_err_probe(dev, PTR_ERR(sunxi_cphy->usb_u2_pipe_clk),
@@ -4525,7 +4527,7 @@ static int sunxi_cadence_phy_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static int __maybe_unused sunxi_cadence_phy_suspend(struct device *dev)
+static int __maybe_unused sunxi_cadence_phy_suspend_noirq(struct device *dev)
 {
 	struct sunxi_cadence_phy *sunxi_cphy = dev_get_drvdata(dev);
 
@@ -4534,7 +4536,7 @@ static int __maybe_unused sunxi_cadence_phy_suspend(struct device *dev)
 	return 0;
 }
 
-static int __maybe_unused sunxi_cadence_phy_resume(struct device *dev)
+static int __maybe_unused sunxi_cadence_phy_resume_noirq(struct device *dev)
 {
 	struct sunxi_cadence_phy *sunxi_cphy = dev_get_drvdata(dev);
 	struct sunxi_cadence_combophy *combo0 = sunxi_cphy->combo0;
@@ -4559,7 +4561,7 @@ static int __maybe_unused sunxi_cadence_phy_resume(struct device *dev)
 }
 
 static struct dev_pm_ops sunxi_cadence_phy_pm_ops = {
-	SET_SYSTEM_SLEEP_PM_OPS(sunxi_cadence_phy_suspend, sunxi_cadence_phy_resume)
+	SET_NOIRQ_SYSTEM_SLEEP_PM_OPS(sunxi_cadence_phy_suspend_noirq, sunxi_cadence_phy_resume_noirq)
 };
 
 static const struct of_device_id sunxi_cadence_phy_of_match_table[] = {
@@ -4581,5 +4583,5 @@ module_platform_driver(sunxi_cadence_phy_driver);
 
 MODULE_AUTHOR("huangyongxing@allwinnertech.com");
 MODULE_DESCRIPTION("Allwinner CADENCE COMBOPHY driver");
-MODULE_VERSION("0.2.0");
+MODULE_VERSION("0.2.2");
 MODULE_LICENSE("GPL v2");

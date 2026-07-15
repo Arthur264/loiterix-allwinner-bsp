@@ -68,6 +68,11 @@
 #define CE_ECC_ENC_DST_NUM		3
 #define CE_ECC_VERIFY_SRC_NUM		12
 
+/* SM2 params */
+#define CE_SM2_WIDTH		256
+#define CE_SM2_VERIFY_SRC_NUM		12
+#define CE_SM2_SUCCESS_FLAG		0X2
+
 /* define SS---->CE_DRIVER_V1 */
 #if IS_ENABLED(CONFIG_ARCH_SUN300IW1)
 #define SS_SUPPORT_CE_V1		1
@@ -673,6 +678,32 @@ typedef struct {
 	s32 channel_id;
 } crypto_ecc_req_ctx_t;
 
+typedef struct {
+	u8 *src_buffer;
+	u32 src_length;
+
+	u8 *dst_buffer;
+	u32 dst_length;
+
+	u8 *key_buffer;
+	u32 key_length;
+
+	u8 *iv_buffer;
+	u32 iv_length;
+
+	u8 *sk_buffer;
+	u32 sk_length;
+
+	u8 *p_buffer;
+	u32 p_length;
+
+	u32 mode;
+	u32 dir;
+	u32 flag;
+
+	s32 channel_id;
+} crypto_sm2_req_ctx_t;
+
 #ifdef SS_SUPPORT_CE_V1
 typedef struct {
 	u8 *src_buffer;
@@ -716,6 +747,7 @@ struct sunxi_crypto_tmp {
 #define CE_IOC_RNG_CRYPTO		_IOW(CE_IOC_MAGIC, 5, crypto_rng_req_ctx_t)
 #define CE_IOC_ECC_CRYPTO		_IOW(CE_IOC_MAGIC, 6, crypto_ecc_req_ctx_t)
 #define CE_IOC_CRC_CRYPTO		_IOW(CE_IOC_MAGIC, 7, crypto_crc_req_ctx_t)
+#define CE_IOC_SM2_CRYPTO		_IOW(CE_IOC_MAGIC, 8, crypto_sm2_req_ctx_t)
 
 /* Inner functions declaration */
 void ce_dev_lock(void);
@@ -732,6 +764,7 @@ int do_rsa_crypto(crypto_rsa_req_ctx_t *req);
 int do_hash_crypto(crypto_hash_req_ctx_t *req_ctx);
 int do_rng_crypto(crypto_rng_req_ctx_t *req_ctx);
 int do_ecc_crypto(crypto_ecc_req_ctx_t *req_ctx);
+int do_sm2_crypto(crypto_sm2_req_ctx_t *req);
 #ifdef SS_SUPPORT_CE_V1
 int do_crc_crypto(crypto_crc_req_ctx_t *req_ctx);
 #endif

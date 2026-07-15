@@ -1212,7 +1212,7 @@ static void enable_gpu_power_control(struct kbase_device *kbdev)
 
 			if (kbdev->devfreq) {
 				kbase_devfreq_force_freq(kbdev, sunxi_data->max_freq);
-				sunxi_info(kbdev->dev, "gpu sync freq between dvfs and hardware\n");
+				sunxi_debug(kbdev->dev, "gpu sync freq between dvfs and hardware\n");
 			}
 		} else {
 			sunxi_err(kbdev->dev, "pll_gpu is not available for resume\n");

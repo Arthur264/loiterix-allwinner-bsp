@@ -380,6 +380,16 @@ void ss_ecc_op_mode_set(int mode, ce_task_desc_t *task)
 	task->asym_ctl |= mode<<CE_ASYM_CTL_RSA_OP_SHIFT;
 }
 
+void ss_sm2_width_set(int size, ce_task_desc_t *task)
+{
+	task->asym_ctl |= DIV_ROUND_UP(size, 4);
+}
+
+void ss_sm2_op_mode_set(int mode, ce_task_desc_t *task)
+{
+	task->asym_ctl |= mode<<CE_ASYM_CTL_RSA_OP_SHIFT;
+}
+
 void ss_ctrl_start(ce_task_desc_t *task, int type, int mode)
 {
 	phys_addr_t task_phy;

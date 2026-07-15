@@ -257,6 +257,7 @@
 #define CE_ECC_OP_DEC                   5 /* decryption */
 #define CE_ECC_OP_SIGN                  6 /* sign */
 #define CE_ECC_OP_VERIFY                7 /* verification */
+#define CE_SM2_VERIFY                   3
 
 #define SS_SEED_SIZE			24
 
@@ -288,6 +289,9 @@ void ss_rsa_op_mode_set(int mode, ce_task_desc_t *task);
 
 void ss_ecc_width_set(int size, ce_task_desc_t *task);
 void ss_ecc_op_mode_set(int mode, ce_task_desc_t *task);
+
+void ss_sm2_width_set(int size, ce_task_desc_t *task);
+void ss_sm2_op_mode_set(int mode, ce_task_desc_t *task);
 
 void ss_cts_last(ce_task_desc_t *task);
 

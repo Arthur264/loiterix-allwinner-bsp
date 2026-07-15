@@ -3691,7 +3691,7 @@
 				      "usb-u3-utmi-clk",
 				      "usb-u2-pipe-clk";
 			assigned-clocks = <&ccu CLK_USB2_U2_PIPE>, <&ccu CLK_USB2_U3_UTMI>;
-			assigned-clocks-parents = <&ccu CLK_PLL_PERI0_480M>, <&ccu CLK_PLL_PERI0_300M>;
+			assigned-clock-parents = <&ccu CLK_PLL_PERI0_480M>, <&ccu CLK_PLL_PERI0_300M>;
 			assigned-clock-rates = <120000000>, <60000000>;
 			resets = <&ccu RST_BUS_SERDES>;
 			reset-names = "serdes-reset";

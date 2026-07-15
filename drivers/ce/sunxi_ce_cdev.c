@@ -405,6 +405,7 @@ static int ce_release_resources(void *req_ctx, ulong cmd)
 #if defined(SS_SUPPORT_CE_V5) || defined(SS_SUPPORT_CE_V4)
 	crypto_rsa_req_ctx_t *rsa_req_ctx = (crypto_rsa_req_ctx_t *)req_ctx;
 	crypto_ecc_req_ctx_t *ecc_req_ctx = (crypto_ecc_req_ctx_t *)req_ctx;
+	crypto_sm2_req_ctx_t *sm2_req_ctx = (crypto_sm2_req_ctx_t *)req_ctx;
 #endif
 	switch (cmd) {
 	case CE_IOC_AES_CRYPTO:
@@ -521,6 +522,24 @@ static int ce_release_resources(void *req_ctx, ulong cmd)
 		if (ecc_req_ctx)
 			kfree(ecc_req_ctx);
 		ce_dev_unlock();
+
+		break;
+	case CE_IOC_SM2_CRYPTO:
+		if (!sm2_req_ctx) {
+			SS_ERR("input is NULL\n");
+			return -EINVAL;
+		}
+
+		if (sm2_req_ctx->dst_buffer)
+			kfree(sm2_req_ctx->dst_buffer);
+		if (sm2_req_ctx->src_buffer)
+			kfree(sm2_req_ctx->src_buffer);
+		if (sm2_req_ctx->key_buffer)
+			kfree(sm2_req_ctx->key_buffer);
+		if (sm2_req_ctx->iv_buffer)
+			kfree(sm2_req_ctx->iv_buffer);
+		if (sm2_req_ctx)
+			kfree(sm2_req_ctx);
 
 		break;
 #endif
@@ -1002,6 +1021,83 @@ static int ioctl_ecc_crypto(unsigned int cmd, unsigned long arg)
 	ce_release_resources((void *)ecc_req_ctx, CE_IOC_ECC_CRYPTO);
 	return 0;
 }
+
+static int ioctl_sm2_crypto(unsigned int cmd, unsigned long arg)
+{
+	int ret;
+	crypto_sm2_req_ctx_t *sm2_req_ctx;
+	phys_addr_t usr_dst_addr;
+
+	SS_DBG("arg_size = 0x%x\n", _IOC_SIZE(cmd));
+	if (_IOC_SIZE(cmd) != sizeof(crypto_sm2_req_ctx_t)) {
+		SS_DBG("arg_size != sizeof(crypto_sm2_req_ctx_t)\n");
+		return -EINVAL;
+	}
+
+	sm2_req_ctx = kzalloc(sizeof(crypto_sm2_req_ctx_t), GFP_KERNEL);
+	if (!sm2_req_ctx) {
+		SS_ERR("kzalloc sm2_req_ctx fail\n");
+		return -ENOMEM;
+	}
+
+	ret = copy_from_user(sm2_req_ctx, (crypto_sm2_req_ctx_t *)arg,
+			     sizeof(crypto_sm2_req_ctx_t));
+	if (ret) {
+		SS_ERR("copy_from_user fail\n");
+		goto out;
+	}
+
+	if (sm2_req_ctx->key_length) {
+		ret = sunxi_copy_from_user(&sm2_req_ctx->key_buffer,
+					   sm2_req_ctx->key_length);
+		if (ret) {
+			SS_ERR("key_buffer copy_from_user fail\n");
+			goto out;
+		};
+	}
+
+	if (sm2_req_ctx->iv_length) {
+		ret = sunxi_copy_from_user(&sm2_req_ctx->iv_buffer,
+					   sm2_req_ctx->iv_length);
+		if (ret) {
+			SS_ERR("iv_buffer copy_from_user fail\n");
+			goto out;
+		};
+	}
+
+	usr_dst_addr = (phys_addr_t)sm2_req_ctx->dst_buffer;
+	ret = sunxi_copy_from_user(&sm2_req_ctx->dst_buffer,
+				   sm2_req_ctx->dst_length);
+	if (ret) {
+		SS_ERR("dst_buffer copy_from_user fail\n");
+		goto out;
+	};
+
+	ret = sunxi_copy_from_user(&sm2_req_ctx->src_buffer,
+				   sm2_req_ctx->src_length);
+	if (ret) {
+		SS_ERR("src_buffer copy_from_user fail\n");
+		goto out;
+	};
+
+	SS_DBG("do_sm2_crypto start\n");
+	ret = do_sm2_crypto(sm2_req_ctx);
+	if (ret) {
+		SS_ERR("do_sm2_crypto fail\n");
+		goto out;
+	}
+
+	ret = copy_to_user((u8 *)usr_dst_addr, sm2_req_ctx->dst_buffer,
+			   sm2_req_ctx->dst_length);
+	if (ret) {
+		SS_ERR(" dst_buffer copy_from_user fail\n");
+		goto out;
+	}
+
+out:
+	ce_release_resources((void *)sm2_req_ctx, CE_IOC_SM2_CRYPTO);
+	return ret;
+}
 #endif
 
 static long sunxi_ce_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
@@ -1093,6 +1189,15 @@ static long sunxi_ce_ioctl(struct file *file, unsigned int cmd, unsigned long ar
 		ret = ioctl_ecc_crypto(CE_IOC_ECC_CRYPTO, arg);
 		if (ret < 0) {
 			SS_ERR("ecc crypto failed\n");
+			return ret;
+		}
+		break;
+	}
+	case CE_IOC_SM2_CRYPTO:
+	{
+		ret = ioctl_sm2_crypto(CE_IOC_SM2_CRYPTO, arg);
+		if (ret < 0) {
+			SS_ERR("sm2 crypto failed\n");
 			return ret;
 		}
 		break;
@@ -1285,7 +1390,7 @@ module_init(sunxi_ce_module_init);
 module_exit(sunxi_ce_module_exit);
 
 MODULE_AUTHOR("mintow");
-MODULE_VERSION("1.2.7");
+MODULE_VERSION("1.2.8");
 MODULE_DESCRIPTION("SUNXI CE Controller Driver");
 MODULE_ALIAS("platform:"SUNXI_SS_DEV_NAME);
 MODULE_LICENSE("GPL");

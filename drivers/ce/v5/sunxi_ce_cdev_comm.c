@@ -379,6 +379,7 @@ static int aes_crypto_start(crypto_aes_req_ctx_t *req, u8 *src_buffer,
 out:
 	ss_irq_disable(channel_id);
 	ce_task_destroy(task);
+	ce_reset();
 
 	/* key */
 	if (req->key_length) {
@@ -920,6 +921,125 @@ out:
 
 	return 0;
 
+}
+
+static void ce_sm2_config(crypto_sm2_req_ctx_t *req, ce_task_desc_t *task)
+{
+	task->chan_id = req->channel_id;
+	ss_method_set(req->dir, SS_METHOD_SM2, task);
+	ss_sm2_width_set(CE_SM2_WIDTH / BITS_PER_BYTE, task);
+	ss_sm2_op_mode_set(req->mode, task);
+	task->comm_ctl |= BIT(CE_COMM_CTL_TASK_INT_SHIFT);
+}
+
+static int ce_sm2_data_init(crypto_sm2_req_ctx_t *req, ce_task_desc_t *task, phys_addr_t src_phy, phys_addr_t dst_phy)
+{
+	u32 src_data_len, dst_data_len, sm2_byte_size;
+
+	sm2_byte_size = CE_SM2_WIDTH / BITS_PER_BYTE;	/* in byte */
+
+	switch (req->mode) {
+	case CE_SM2_VERIFY:
+		src_data_len = sm2_byte_size * CE_SM2_VERIFY_SRC_NUM;
+		dst_data_len = sm2_byte_size;
+
+		/* config task src */
+		ce_task_addr_set(0, src_phy, task->ce_sg[0].src_addr);
+		task->ce_sg[0].src_len = src_data_len;
+		task->data_len = src_data_len;	/* length in byte */
+
+		/* config task dst */
+		ce_task_addr_set(0, dst_phy, task->ce_sg[0].dst_addr);
+		task->ce_sg[0].dst_len = dst_data_len;
+		break;
+	default:
+		SS_ERR("sm2 mode not support, the current mode is %d\n", req->mode);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+int do_sm2_crypto(crypto_sm2_req_ctx_t *req)
+{
+	int err;
+	u32 flag;
+	u32 channel_id = req->channel_id;
+	phys_addr_t dst_phy;
+	phys_addr_t src_phy;
+	ce_task_desc_t *task;
+
+	task = ce_alloc_task();
+	if (!task)
+		return -ENOMEM;
+
+	ce_sm2_config(req, task);
+
+	src_phy = dma_map_single(ce_cdev->pdevice, req->src_buffer, req->src_length, DMA_TO_DEVICE);
+	SS_DBG("src = 0x%px, src_phy_addr = 0x%px\n", req->src_buffer, (void *)src_phy);
+
+	dst_phy = dma_map_single(ce_cdev->pdevice, req->dst_buffer, req->dst_length, DMA_FROM_DEVICE);
+	SS_DBG("dst = 0x%px, dst_phy_addr = 0x%px\n", req->dst_buffer, (void *)dst_phy);
+
+	err = ce_sm2_data_init(req, task, src_phy, dst_phy);
+	if (err)
+		goto err0;
+
+	/* start ce */
+	ce_dev_lock();
+	ss_pending_clear(channel_id);
+	ss_irq_enable(channel_id);
+	ce_print_task_desc(task);
+
+	init_completion(&ce_cdev->flows[channel_id].done);
+	ss_ctrl_start(task, SS_METHOD_SM2, 0);
+
+	err = wait_for_completion_timeout(&ce_cdev->flows[channel_id].done, msecs_to_jiffies(SS_WAIT_TIME));
+	if (!err) {
+		SS_ERR("Timed out\n");
+		ce_print_task_desc(task);
+		ce_reg_print();
+		ce_reset();
+		err = -ETIMEDOUT;
+		goto err1;
+	}
+
+	ss_irq_disable(channel_id);
+
+	SS_DBG("After CE, TSR: 0x%08x, ERR: 0x%08x\n", ss_reg_rd(CE_REG_TSR), ss_reg_rd(CE_REG_ERR));
+
+	err = ss_flow_err(channel_id);
+	if (err) {
+		SS_ERR("CE return error: %d\n", err);
+		err = -EINVAL;
+		goto err1;
+	}
+
+err1:
+	ce_dev_unlock();
+err0:
+	/* src */
+	dma_unmap_single(ce_cdev->pdevice, src_phy, req->src_length, DMA_TO_DEVICE);
+
+	/* dst */
+	dma_unmap_single(ce_cdev->pdevice, dst_phy, req->dst_length, DMA_FROM_DEVICE);
+
+	/*
+	 * Verify is to substitute the hash into the SM2 curve for verification.
+	 * If the verification is successful, output 2; otherwise, output 1.
+	 */
+	if ((req->mode == CE_SM2_VERIFY) && (!err)) {
+		flag = *(u32 *)req->dst_buffer;
+		SS_DBG("the verify is %d\n", flag);
+		if (flag != CE_SM2_SUCCESS_FLAG) {
+			SS_ERR("SM2 verify failed\n");
+			err = -2;
+		}
+	}
+
+	ce_task_destroy(task);
+
+	return err;
 }
 
 static int check_hash_ctx_vaild(crypto_hash_req_ctx_t *req)

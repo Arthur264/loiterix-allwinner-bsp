@@ -802,7 +802,17 @@ static int sunxi_synopsys_phy_create(struct device *dev, struct device_node *np,
 	return 0;
 }
 
-static int sunxi_synopsys_phy_subsys_init(struct sunxi_synopsys_phy *sunxi_cphy)
+static int sunxi_synopsys_phy_subsys_init_usb(struct sunxi_synopsys_phy *sunxi_cphy)
+{
+	if (sunxi_cphy->usb_supported)
+		combo_phy_mode_set(sunxi_cphy, true);
+
+	combo_usb3_clk_set(sunxi_cphy, true);
+
+	return 0;
+}
+
+static int sunxi_synopsys_phy_subsys_init_common(struct sunxi_synopsys_phy *sunxi_cphy)
 {
 	int ret;
 
@@ -846,21 +856,31 @@ static int sunxi_synopsys_phy_subsys_init(struct sunxi_synopsys_phy *sunxi_cphy)
 		}
 	}
 
-	if (sunxi_cphy->usb_supported)
-		combo_phy_mode_set(sunxi_cphy, true);
-	combo_usb3_clk_set(sunxi_cphy, true);
-
 	sunxi_cphy->vernum = combo_phy_ver_get(sunxi_cphy);
 
 	return 0;
 }
 
-static void sunxi_synopsys_phy_subsys_exit(struct sunxi_synopsys_phy *sunxi_cphy)
+static int sunxi_synopsys_phy_subsys_init(struct sunxi_synopsys_phy *sunxi_cphy)
+{
+	int ret;
+
+	ret = sunxi_synopsys_phy_subsys_init_common(sunxi_cphy);
+	ret |= sunxi_synopsys_phy_subsys_init_usb(sunxi_cphy);
+
+	return ret;
+}
+
+static void sunxi_synopsys_phy_subsys_exit_usb(struct sunxi_synopsys_phy *sunxi_cphy)
 {
 	if (sunxi_cphy->usb_supported)
-		combo_usb3_clk_set(sunxi_cphy, false);
-	combo_phy_mode_set(sunxi_cphy, false);
+		combo_phy_mode_set(sunxi_cphy, false);
 
+	combo_usb3_clk_set(sunxi_cphy, false);
+}
+
+static void sunxi_synopsys_phy_subsys_exit_common(struct sunxi_synopsys_phy *sunxi_cphy)
+{
 	if (sunxi_cphy->axi_bus_clk)
 		clk_disable_unprepare(sunxi_cphy->axi_bus_clk);
 
@@ -875,6 +895,12 @@ static void sunxi_synopsys_phy_subsys_exit(struct sunxi_synopsys_phy *sunxi_cphy
 
 	if (sunxi_cphy->bus_clk)
 		clk_disable_unprepare(sunxi_cphy->bus_clk);
+}
+
+static void sunxi_synopsys_phy_subsys_exit(struct sunxi_synopsys_phy *sunxi_cphy)
+{
+	sunxi_synopsys_phy_subsys_exit_usb(sunxi_cphy);
+	sunxi_synopsys_phy_subsys_exit_common(sunxi_cphy);
 }
 
 static int sunxi_synopsys_phy_parse_dt(struct platform_device *pdev)
@@ -1034,7 +1060,9 @@ static int __maybe_unused sunxi_synopsys_phy_suspend(struct device *dev)
 {
 	struct sunxi_synopsys_phy *sunxi_cphy = dev_get_drvdata(dev);
 
-	sunxi_synopsys_phy_subsys_exit(sunxi_cphy);
+	sunxi_synopsys_phy_subsys_exit_usb(sunxi_cphy);
+
+	sunxi_debug(dev, "suspend finished\n");
 
 	return 0;
 }
@@ -1044,17 +1072,47 @@ static int __maybe_unused sunxi_synopsys_phy_resume(struct device *dev)
 	struct sunxi_synopsys_phy *sunxi_cphy = dev_get_drvdata(dev);
 	int ret;
 
-	ret = sunxi_synopsys_phy_subsys_init(sunxi_cphy);
+	ret = sunxi_synopsys_phy_subsys_init_usb(sunxi_cphy);
 	if (ret) {
 		dev_err(dev, "failed to resume sub system\n");
 		return ret;
 	}
+
+	sunxi_debug(dev, "resume finished\n");
+
+	return 0;
+}
+
+static int __maybe_unused sunxi_synopsys_phy_suspend_noirq(struct device *dev)
+{
+	struct sunxi_synopsys_phy *sunxi_cphy = dev_get_drvdata(dev);
+
+	sunxi_synopsys_phy_subsys_exit_common(sunxi_cphy);
+
+	sunxi_debug(dev, "noirq suspend finished\n");
+
+	return 0;
+}
+
+static int __maybe_unused sunxi_synopsys_phy_resume_noirq(struct device *dev)
+{
+	struct sunxi_synopsys_phy *sunxi_cphy = dev_get_drvdata(dev);
+	int ret;
+
+	ret = sunxi_synopsys_phy_subsys_init_common(sunxi_cphy);
+	if (ret) {
+		dev_err(dev, "failed to resume sub system\n");
+		return ret;
+	}
+
+	sunxi_debug(dev, "noirq resume finished\n");
 
 	return 0;
 }
 
 static struct dev_pm_ops sunxi_synopsys_phy_pm_ops = {
 	SET_SYSTEM_SLEEP_PM_OPS(sunxi_synopsys_phy_suspend, sunxi_synopsys_phy_resume)
+	SET_NOIRQ_SYSTEM_SLEEP_PM_OPS(sunxi_synopsys_phy_suspend_noirq, sunxi_synopsys_phy_resume_noirq)
 };
 
 static struct sunxi_phy_config synopsys_combophy = {
@@ -1085,5 +1143,5 @@ module_platform_driver(sunxi_synopsys_phy_driver);
 
 MODULE_AUTHOR("kanghoupeng@allwinnertech.com");
 MODULE_DESCRIPTION("Allwinner SYNOPSYS COMBOPHY driver");
-MODULE_VERSION("0.1.2");
+MODULE_VERSION("0.1.4");
 MODULE_LICENSE("GPL v2");
