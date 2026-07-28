@@ -922,6 +922,15 @@
 			#clock-cells = <1>;
 			#reset-cells = <1>;
 			/*
+			 * 40MHz works with either parent (480m/12 or 600m/15).
+			 * earlycon often leaves parent on peri0-480m; 33.3MHz then
+			 * snaps to 32MHz and CRSF becomes 400000 (-4.8%).
+			 * 40MHz → 420000 = 416667 (-0.79%).
+			 */
+			assigned-clocks = <&ccu CLK_APB_UART>;
+			assigned-clock-parents = <&ccu CLK_PLL_PERI0_600M>;
+			assigned-clock-rates = <40000000>;
+			/*
 			 * for example:
 			 * sdm_info: sdm_info {
 			 * 	pll-video0 {
