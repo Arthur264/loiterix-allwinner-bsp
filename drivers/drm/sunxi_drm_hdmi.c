@@ -1601,6 +1601,7 @@ static int _sunxi_drv_cec_clock_on(struct sunxi_drm_hdmi *hdmi)
 {
 	struct sunxi_hdmi_res_s  *pclk = &hdmi->hdmi_res;
 	struct sunxi_hdmi_ctrl_s *pctl = &hdmi->hdmi_ctrl;
+	int ret;
 
 	if (!pctl->drv_dts_cec) {
 		hdmi_trace("cec drv cec dts is disable\n");
@@ -1614,7 +1615,25 @@ static int _sunxi_drv_cec_clock_on(struct sunxi_drm_hdmi *hdmi)
 
 	if (!IS_ERR_OR_NULL(pclk->clk_cec)) {
 		hdmi_trace("cec drv clock enable\n");
-		clk_prepare_enable(pclk->clk_cec);
+		/*
+		 * A733 can source HDMI CEC from either osc32k or the
+		 * PLL-derived 32.768 kHz clock. Requesting the exact CEC rate
+		 * keeps boards with a populated crystal on osc32k, while boards
+		 * such as RM502 automatically select the PLL-derived parent.
+		 */
+		if (of_machine_is_compatible("allwinner,sun60i-a733")) {
+			ret = clk_set_rate(pclk->clk_cec, 32768);
+			if (ret) {
+				hdmi_err("failed to set cec clock rate: %d\n", ret);
+				return ret;
+			}
+		}
+
+		ret = clk_prepare_enable(pclk->clk_cec);
+		if (ret) {
+			hdmi_err("failed to enable cec clock: %d\n", ret);
+			return ret;
+		}
 	}
 
 	hdmi_inf("cec drv clock enable done\n");
@@ -1717,6 +1736,7 @@ static void _sunxi_drv_cec_adap_delect(void *data)
 static int _sunxi_drv_cec_adap_enable(struct cec_adapter *adap, bool state)
 {
 	struct sunxi_drm_hdmi *hdmi = cec_get_drvdata(adap);
+	int ret;
 
 	if (hdmi->hdmi_cec.enable == state) {
 		hdmi_inf("sunxi cec drv has been %s\n", state ?  "enable" : "disable");
@@ -1725,7 +1745,9 @@ static int _sunxi_drv_cec_adap_enable(struct cec_adapter *adap, bool state)
 
 	if (state == SUNXI_HDMI_ENABLE) {
 		/* enable cec clock */
-		_sunxi_drv_cec_clock_on(hdmi);
+		ret = _sunxi_drv_cec_clock_on(hdmi);
+		if (ret)
+			return ret;
 		/* enable cec hardware */
 		sunxi_cec_enable(SUNXI_HDMI_ENABLE);
 	} else {
