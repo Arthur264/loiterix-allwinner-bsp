@@ -93,8 +93,9 @@ int dw_cec_set_enable(u8 enable)
 		/* set logical addr */
 		dw_cec_set_logical_addr(0x0);
 
-		/* clear all interrupt state */
+		/* mask and clear all pending interrupt state */
 		dw_write(CEC_MASK, ~0);
+		dw_mc_irq_clear_state(DW_MC_IRQ_CEC, ~0);
 
 		/* enable interrupt */
 		mask |= CEC_MASK_DONE_MASK;

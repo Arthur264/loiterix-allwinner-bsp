@@ -1670,42 +1670,46 @@ static irqreturn_t _sunxi_drv_cec_hardirq(int irq, void *data)
 {
 	struct cec_adapter *adap = data;
 	struct sunxi_drm_hdmi *hdmi = cec_get_drvdata(adap);
+	irqreturn_t ret = IRQ_HANDLED;
 	int len;
 
 	u8 stat = sunxi_cec_get_irq_state();
 
 	if (stat == SUNXI_CEC_IRQ_NULL)
-		goto none_exit;
+		return IRQ_NONE;
 
+	/* ERROR_INITIATOR can be latched together with DONE on an aborted TX. */
 	if (stat & SUNXI_CEC_IRQ_ERR_INITIATOR) {
 		hdmi->hdmi_cec.tx_status = CEC_TX_STATUS_ERROR;
 		hdmi->hdmi_cec.tx_done   = true;
-		goto wake_exit;
+		ret = IRQ_WAKE_THREAD;
 	} else if (stat & SUNXI_CEC_IRQ_DONE) {
 		hdmi->hdmi_cec.tx_status = CEC_TX_STATUS_OK;
 		hdmi->hdmi_cec.tx_done = true;
-		goto wake_exit;
+		ret = IRQ_WAKE_THREAD;
 	} else if (stat & SUNXI_CEC_IRQ_NACK) {
 		hdmi->hdmi_cec.tx_status = CEC_TX_STATUS_NACK;
 		hdmi->hdmi_cec.tx_done = true;
-		goto wake_exit;
+		ret = IRQ_WAKE_THREAD;
+	} else if (stat & SUNXI_CEC_IRQ_ARB) {
+		hdmi->hdmi_cec.tx_status = CEC_TX_STATUS_ARB_LOST;
+		hdmi->hdmi_cec.tx_done = true;
+		ret = IRQ_WAKE_THREAD;
 	}
 
 	if (stat & SUNXI_CEC_IRQ_EOM) {
-		len = sunxi_cec_message_receive((u8 *)&hdmi->hdmi_cec.rx_msg.msg);
+		len = sunxi_cec_message_receive(hdmi->hdmi_cec.rx_msg.msg,
+						sizeof(hdmi->hdmi_cec.rx_msg.msg));
 		if (len < 0)
-			goto none_exit;
+			return ret;
 
 		hdmi->hdmi_cec.rx_msg.len = len;
 		smp_wmb();
 		hdmi->hdmi_cec.rx_done = true;
-		goto wake_exit;
+		ret = IRQ_WAKE_THREAD;
 	}
 
-none_exit:
-	return IRQ_NONE;
-wake_exit:
-	return IRQ_WAKE_THREAD;
+	return ret;
 }
 
 static irqreturn_t _sunxi_drv_cec_thread(int irq, void *data)
@@ -1772,7 +1776,8 @@ static int _sunxi_drv_cec_adap_set_logicaddr(struct cec_adapter *adap, u8 addr)
 	if (addr == CEC_LOG_ADDR_INVALID)
 		hdmi->hdmi_cec.logic_addr = 0x0;
 	else
-		hdmi->hdmi_cec.logic_addr = BIT(addr);
+		hdmi->hdmi_cec.logic_addr |= BIT(addr) |
+				BIT(CEC_LOG_ADDR_BROADCAST);
 
 	sunxi_cec_set_logic_addr(hdmi->hdmi_cec.logic_addr);
 	return 0;
