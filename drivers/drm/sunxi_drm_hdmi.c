@@ -1791,6 +1791,8 @@ static int _sunxi_drv_cec_adap_send(struct cec_adapter *adap, u8 attempts,
 	switch (signal_free_time) {
 	case CEC_SIGNAL_FREE_TIME_RETRY:
 		times = SUNXI_CEC_WAIT_3BIT;
+		/* Let a competing initiator finish before starting the retry. */
+		msleep(50);
 		break;
 	case CEC_SIGNAL_FREE_TIME_NEW_INITIATOR:
 	default:
