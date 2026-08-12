@@ -368,10 +368,11 @@ void sunxi_cec_enable(u8 state);
 /**
  * @desc: sunxi cec receive message
  * @buf: point to message buffer
+ * @buf_size: receive message buffer size
  * @return: -1 - failed
  *       other - receive message length
  */
-int sunxi_cec_message_receive(u8 *buf);
+int sunxi_cec_message_receive(u8 *buf, u8 buf_size);
 /**
  * @desc: sunxi cec send message
  * @buf: point to send message buffer

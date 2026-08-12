@@ -1146,6 +1146,7 @@ vip_int32_t vipdrv_drv_adjust_param(
 	struct device *dev = &(kdriver->pdev->dev);
 	int ret;
 	struct resource *res;
+	void __iomem *sysctrl;
 	__maybe_unused int count;
 	__maybe_unused int err, vol;
 
@@ -1265,6 +1266,15 @@ vip_int32_t vipdrv_drv_adjust_param(
 		return -EBUSY;
 	}
 
+	/* Route SRAM to NPU: clear SRAM_CTRL_REG2 bit 1 (offset 0x08).
+	 * On A733 this register lives in the SYSCTRL region at 0x03000000.
+	 * Must be done before enabling NPU clocks/power.
+	 */
+	sysctrl = ioremap(0x03000000, 0x100);
+	if (sysctrl) {
+		writel(readl(sysctrl + 0x08) & ~BIT(1), sysctrl + 0x08);
+		iounmap(sysctrl);
+	}
 
 	check_smc_set_freq();
 	get_vf_index();

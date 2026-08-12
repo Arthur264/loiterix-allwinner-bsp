@@ -105,6 +105,7 @@ static struct device *sunxi_of_get_child_panel(struct device *dev)
 	}
 
 	child_panel_dev = &pdev->dev;
+	get_device(child_panel_dev);
 	platform_device_put(pdev);
 
 CHILD_PANEL_PUT:
@@ -591,6 +592,7 @@ static int panel_dsi_parse_dt(struct panel_dsi *dsi_panel)
 				kfree(gpio_name);
 				return ret;
 			}
+			dsi_panel->enable_gpio[i] = NULL;
 		}
 		kfree(gpio_name);
 	}
@@ -603,6 +605,7 @@ static int panel_dsi_parse_dt(struct panel_dsi *dsi_panel)
 			dev_err(dsi_panel->dev, "failed to request %s GPIO: %d\n", "reset", ret);
 			return ret;
 		}
+		dsi_panel->reset_gpio = NULL;
 	}
 
 	of_property_read_u32(np, "dsc,vrr-setp", &dsi_panel->vrr_setp);
@@ -873,10 +876,8 @@ static int panel_dsi_probe(struct mipi_dsi_device *dsi)
 		panel_drv = panel_dev->driver;
 		if (panel_drv && try_module_get(panel_drv->owner))
 			module_put(panel_drv->owner);
-		else {
-			DRM_ERROR("[DSI-PANEL] panel-dsi driver not probe\n");
-			return -EPROBE_DEFER;
-		}
+		else
+			DRM_WARN("[DSI-PANEL] panel-dsi driver not yet probed, continue anyway\n");
 
 		np = panel_dev->of_node;
 		dsi_panel->panel_dev = panel_dev;

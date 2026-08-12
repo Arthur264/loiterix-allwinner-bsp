@@ -364,11 +364,9 @@ void sunxi_cec_enable(u8 state)
 	dw_cec_set_enable(state == SUNXI_HDMI_ENABLE ? 0x1 : 0x0);
 }
 
-int sunxi_cec_message_receive(u8 *buf)
+int sunxi_cec_message_receive(u8 *buf, u8 buf_size)
 {
-	int size = sizeof(buf);
-
-	return dw_cec_receive_msg(buf, size);
+	return dw_cec_receive_msg(buf, buf_size);
 }
 
 void sunxi_cec_message_send(u8 *buf, u8 len, u8 times)
@@ -406,25 +404,7 @@ u8 sunxi_cec_get_irq_state(void)
 		return SUNXI_CEC_IRQ_NULL;
 
 	dw_mc_irq_clear_state(DW_MC_IRQ_CEC, state);
-
-	switch (state) {
-	case IH_CEC_STAT0_DONE_MASK:
-	  return SUNXI_CEC_IRQ_DONE;
-	case IH_CEC_STAT0_EOM_MASK:
-	  return SUNXI_CEC_IRQ_EOM;
-	case IH_CEC_STAT0_NACK_MASK:
-	  return SUNXI_CEC_IRQ_NACK;
-	case IH_CEC_STAT0_ARB_LOST_MASK:
-	  return SUNXI_CEC_IRQ_ARB;
-	case IH_CEC_STAT0_ERROR_INITIATOR_MASK:
-	  return SUNXI_CEC_IRQ_ERR_INITIATOR;
-	case IH_CEC_STAT0_ERROR_FOLLOW_MASK:
-	  return SUNXI_CEC_IRQ_ERR_FOLLOW;
-	case IH_CEC_STAT0_WAKEUP_MASK:
-	  return SUNXI_CEC_IRQ_WAKEUP;
-	default:
-	  return SUNXI_CEC_IRQ_NULL;
-	}
+	return state;
 }
 /*******************************************************************************
  * sunxi hdmi core audio function
@@ -437,6 +417,11 @@ int sunxi_hdmi_audio_set_info(hdmi_audio_t *info)
 	if (IS_ERR_OR_NULL(info)) {
 		shdmi_err(info);
 		return -1;
+	}
+
+	if (!sunxi_hdmi) {
+		hdmi_err("sunxi hdmi dev is null, audio set info skip\n");
+		return -ENODEV;
 	}
 
 	data.mInterfaceType     = info->hw_intf;
@@ -459,6 +444,12 @@ int sunxi_hdmi_audio_set_info(hdmi_audio_t *info)
 int sunxi_hdmi_audio_enable(void)
 {
 	int ret = 0;
+
+	if (!sunxi_hdmi) {
+		hdmi_err("sunxi hdmi dev is null, audio enable skip\n");
+		return -ENODEV;
+	}
+
 	mutex_lock(&sunxi_hdmi->lock_config);
 	ret = dw_audio_on();
 	mutex_unlock(&sunxi_hdmi->lock_config);

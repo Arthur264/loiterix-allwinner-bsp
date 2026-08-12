@@ -750,9 +750,15 @@ int dw_audio_set_info(void *data)
 {
 	struct dw_hdmi_dev_s *hdmi = dw_get_hdmi();
 	struct dw_audio_s *info = (struct dw_audio_s *)data;
-	struct dw_audio_s *audio = dw_get_audio();
+	struct dw_audio_s *audio;
 	int ret = 0;
 
+	if (!hdmi) {
+		hdmi_err("hdmi dev is null, audio set info skip\n");
+		return -ENODEV;
+	}
+
+	audio = dw_get_audio();
 	mutex_lock(&hdmi->aud_lock_params);
 	ret = _dw_audio_param_reset(audio);
 	if (ret != 0) {
@@ -809,7 +815,14 @@ int dw_audio_on(void)
 {
 	int ret = 0;
 	struct dw_hdmi_dev_s *hdmi = dw_get_hdmi();
-	struct dw_audio_s *audio = &hdmi->audio_dev;
+	struct dw_audio_s *audio;
+
+	if (!hdmi) {
+		hdmi_err("hdmi dev is null, audio on skip\n");
+		return -ENODEV;
+	}
+
+	audio = &hdmi->audio_dev;
 
 	_dw_audio_param_print(audio);
 

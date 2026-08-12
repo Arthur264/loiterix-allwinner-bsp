@@ -1601,6 +1601,7 @@ static int _sunxi_drv_cec_clock_on(struct sunxi_drm_hdmi *hdmi)
 {
 	struct sunxi_hdmi_res_s  *pclk = &hdmi->hdmi_res;
 	struct sunxi_hdmi_ctrl_s *pctl = &hdmi->hdmi_ctrl;
+	int ret;
 
 	if (!pctl->drv_dts_cec) {
 		hdmi_trace("cec drv cec dts is disable\n");
@@ -1614,7 +1615,25 @@ static int _sunxi_drv_cec_clock_on(struct sunxi_drm_hdmi *hdmi)
 
 	if (!IS_ERR_OR_NULL(pclk->clk_cec)) {
 		hdmi_trace("cec drv clock enable\n");
-		clk_prepare_enable(pclk->clk_cec);
+		/*
+		 * A733 can source HDMI CEC from either osc32k or the
+		 * PLL-derived 32.768 kHz clock. Requesting the exact CEC rate
+		 * keeps boards with a populated crystal on osc32k, while boards
+		 * such as RM502 automatically select the PLL-derived parent.
+		 */
+		if (of_machine_is_compatible("allwinner,sun60i-a733")) {
+			ret = clk_set_rate(pclk->clk_cec, 32768);
+			if (ret) {
+				hdmi_err("failed to set cec clock rate: %d\n", ret);
+				return ret;
+			}
+		}
+
+		ret = clk_prepare_enable(pclk->clk_cec);
+		if (ret) {
+			hdmi_err("failed to enable cec clock: %d\n", ret);
+			return ret;
+		}
 	}
 
 	hdmi_inf("cec drv clock enable done\n");
@@ -1651,42 +1670,46 @@ static irqreturn_t _sunxi_drv_cec_hardirq(int irq, void *data)
 {
 	struct cec_adapter *adap = data;
 	struct sunxi_drm_hdmi *hdmi = cec_get_drvdata(adap);
+	irqreturn_t ret = IRQ_HANDLED;
 	int len;
 
 	u8 stat = sunxi_cec_get_irq_state();
 
 	if (stat == SUNXI_CEC_IRQ_NULL)
-		goto none_exit;
+		return IRQ_NONE;
 
+	/* ERROR_INITIATOR can be latched together with DONE on an aborted TX. */
 	if (stat & SUNXI_CEC_IRQ_ERR_INITIATOR) {
 		hdmi->hdmi_cec.tx_status = CEC_TX_STATUS_ERROR;
 		hdmi->hdmi_cec.tx_done   = true;
-		goto wake_exit;
+		ret = IRQ_WAKE_THREAD;
 	} else if (stat & SUNXI_CEC_IRQ_DONE) {
 		hdmi->hdmi_cec.tx_status = CEC_TX_STATUS_OK;
 		hdmi->hdmi_cec.tx_done = true;
-		goto wake_exit;
+		ret = IRQ_WAKE_THREAD;
 	} else if (stat & SUNXI_CEC_IRQ_NACK) {
 		hdmi->hdmi_cec.tx_status = CEC_TX_STATUS_NACK;
 		hdmi->hdmi_cec.tx_done = true;
-		goto wake_exit;
+		ret = IRQ_WAKE_THREAD;
+	} else if (stat & SUNXI_CEC_IRQ_ARB) {
+		hdmi->hdmi_cec.tx_status = CEC_TX_STATUS_ARB_LOST;
+		hdmi->hdmi_cec.tx_done = true;
+		ret = IRQ_WAKE_THREAD;
 	}
 
 	if (stat & SUNXI_CEC_IRQ_EOM) {
-		len = sunxi_cec_message_receive((u8 *)&hdmi->hdmi_cec.rx_msg.msg);
+		len = sunxi_cec_message_receive(hdmi->hdmi_cec.rx_msg.msg,
+						sizeof(hdmi->hdmi_cec.rx_msg.msg));
 		if (len < 0)
-			goto none_exit;
+			return ret;
 
 		hdmi->hdmi_cec.rx_msg.len = len;
 		smp_wmb();
 		hdmi->hdmi_cec.rx_done = true;
-		goto wake_exit;
+		ret = IRQ_WAKE_THREAD;
 	}
 
-none_exit:
-	return IRQ_NONE;
-wake_exit:
-	return IRQ_WAKE_THREAD;
+	return ret;
 }
 
 static irqreturn_t _sunxi_drv_cec_thread(int irq, void *data)
@@ -1717,6 +1740,7 @@ static void _sunxi_drv_cec_adap_delect(void *data)
 static int _sunxi_drv_cec_adap_enable(struct cec_adapter *adap, bool state)
 {
 	struct sunxi_drm_hdmi *hdmi = cec_get_drvdata(adap);
+	int ret;
 
 	if (hdmi->hdmi_cec.enable == state) {
 		hdmi_inf("sunxi cec drv has been %s\n", state ?  "enable" : "disable");
@@ -1725,7 +1749,9 @@ static int _sunxi_drv_cec_adap_enable(struct cec_adapter *adap, bool state)
 
 	if (state == SUNXI_HDMI_ENABLE) {
 		/* enable cec clock */
-		_sunxi_drv_cec_clock_on(hdmi);
+		ret = _sunxi_drv_cec_clock_on(hdmi);
+		if (ret)
+			return ret;
 		/* enable cec hardware */
 		sunxi_cec_enable(SUNXI_HDMI_ENABLE);
 	} else {
@@ -1750,7 +1776,8 @@ static int _sunxi_drv_cec_adap_set_logicaddr(struct cec_adapter *adap, u8 addr)
 	if (addr == CEC_LOG_ADDR_INVALID)
 		hdmi->hdmi_cec.logic_addr = 0x0;
 	else
-		hdmi->hdmi_cec.logic_addr = BIT(addr);
+		hdmi->hdmi_cec.logic_addr |= BIT(addr) |
+				BIT(CEC_LOG_ADDR_BROADCAST);
 
 	sunxi_cec_set_logic_addr(hdmi->hdmi_cec.logic_addr);
 	return 0;
@@ -1764,6 +1791,8 @@ static int _sunxi_drv_cec_adap_send(struct cec_adapter *adap, u8 attempts,
 	switch (signal_free_time) {
 	case CEC_SIGNAL_FREE_TIME_RETRY:
 		times = SUNXI_CEC_WAIT_3BIT;
+		/* Let a competing initiator finish before starting the retry. */
+		msleep(50);
 		break;
 	case CEC_SIGNAL_FREE_TIME_NEW_INITIATOR:
 	default:
