@@ -710,7 +710,7 @@ int sensor_set_fmt(struct v4l2_subdev *sd,
 	vin_log(VIN_LOG_FMT, "%s %s %d*%d 0x%x 0x%x\n", sd->name, __func__,
 		fmt->format.width, fmt->format.height,
 		fmt->format.code, fmt->format.field);
-	sensor_try_format(sd, state->pads, fmt, &ws, &sf);
+	sensor_try_format(sd, state ? state->pads : NULL, fmt, &ws, &sf);
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
 		if (state->pads == NULL) {
 			pr_err("%s cfg is NULL!\n", sd->name);
