@@ -3475,7 +3475,14 @@ static struct platform_driver isp_platform_driver = {
 
 void sunxi_isp_sensor_type(struct v4l2_subdev *sd, int use_isp)
 {
-	struct isp_dev *isp = v4l2_get_subdevdata(sd);
+	struct isp_dev *isp;
+
+	if (!sd)
+		return;
+
+	isp = v4l2_get_subdevdata(sd);
+	if (!isp)
+		return;
 
 	isp->use_isp = use_isp;
 	if (isp->is_empty)

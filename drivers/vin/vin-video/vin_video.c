@@ -1029,12 +1029,20 @@ out:
 
 }
 
+static int __vin_s_input(struct vin_core *vinc, unsigned int i);
+static int __vin_ensure_input(struct vin_core *vinc);
+
 static int vidioc_try_fmt_vid_cap_mplane(struct file *file, void *priv,
 					 struct v4l2_format *f)
 {
 	struct vin_core *vinc = video_drvdata(file);
 	struct v4l2_mbus_framefmt mf;
 	struct vin_fmt *ffmt = NULL;
+	int ret;
+
+	ret = __vin_ensure_input(vinc);
+	if (ret < 0)
+		return ret;
 
 	ffmt = vin_find_format(&f->fmt.pix_mp.pixelformat, NULL,
 		VIN_FMT_ALL, -1, false);
@@ -1084,6 +1092,10 @@ static int __vin_set_fmt(struct vin_core *vinc, struct v4l2_format *f)
 				f->fmt.pix_mp.pixelformat);
 		return -EINVAL;
 	}
+
+	ret = __vin_ensure_input(vinc);
+	if (ret < 0)
+		return ret;
 
 	cap->frame.fmt = *ffmt;
 	mf.width = f->fmt.pix_mp.width;
@@ -2352,6 +2364,16 @@ static int __vin_actuator_set_power(struct v4l2_subdev *sd, int on)
 	return ret != -ENOIOCTLCMD ? ret : 0;
 }
 
+static int __vin_ensure_input(struct vin_core *vinc)
+{
+	struct vin_vid_cap *cap = &vinc->vid_cap;
+
+	if (!vin_lpm(cap))
+		return 0;
+
+	return __vin_s_input(vinc, 0);
+}
+
 static int __vin_s_input(struct vin_core *vinc, unsigned int i)
 {
 	struct vin_md *vind = dev_get_drvdata(vinc->v4l2_dev->dev);
@@ -2387,17 +2409,31 @@ static int __vin_s_input(struct vin_core *vinc, unsigned int i)
 		return -EINVAL;
 	}
 	inst = &module->sensors.inst[valid_idx];
-
-	sunxi_isp_sensor_type(cap->pipe.sd[VIN_IND_ISP], inst->is_isp_used);
 	vinc->support_raw = inst->is_isp_used;
 
 	mutex_lock(&cap->vdev.entity.graph_obj.mdev->graph_mutex);
 	ret = vin_pipeline_call(vinc, open, &cap->pipe, &cap->vdev.entity, true);
 	if (ret < 0) {
 		vin_err("vin pipeline open failed (%d)!\n", ret);
+		mutex_unlock(&cap->vdev.entity.graph_obj.mdev->graph_mutex);
 		return ret;
 	}
 	mutex_unlock(&cap->vdev.entity.graph_obj.mdev->graph_mutex);
+
+	if (!cap->pipe.sd[VIN_IND_ISP]) {
+		vin_err("ISP subdev missing from pipeline\n");
+		return -ENODEV;
+	}
+	if (!cap->pipe.sd[VIN_IND_SCALER]) {
+		vin_err("scaler subdev missing from pipeline\n");
+		return -ENODEV;
+	}
+	if (!cap->pipe.sd[VIN_IND_SENSOR]) {
+		vin_err("sensor subdev missing from pipeline\n");
+		return -ENODEV;
+	}
+
+	sunxi_isp_sensor_type(cap->pipe.sd[VIN_IND_ISP], inst->is_isp_used);
 
 	if (module->modules.act[valid_idx].sd != NULL) {
 		cap->pipe.sd[VIN_IND_ACTUATOR] = module->modules.act[valid_idx].sd;
@@ -4525,8 +4561,15 @@ int vin_s_input_special(int id, int i)
 	}
 
 	inst = &module->sensors.inst[valid_idx];
-	sunxi_isp_sensor_type(cap->pipe.sd[VIN_IND_ISP], inst->is_isp_used);
 	vinc->support_raw = inst->is_isp_used;
+
+	if (!cap->pipe.sd[VIN_IND_ISP] || !cap->pipe.sd[VIN_IND_SCALER] ||
+	    !cap->pipe.sd[VIN_IND_SENSOR]) {
+		vin_err("pipeline subdev missing (isp/scaler/sensor)\n");
+		return -ENODEV;
+	}
+
+	sunxi_isp_sensor_type(cap->pipe.sd[VIN_IND_ISP], inst->is_isp_used);
 
 	ret = v4l2_subdev_call(cap->pipe.sd[VIN_IND_ISP], core, init, 1);
 	if (ret < 0) {

@@ -998,7 +998,7 @@ static int sunxi_tdm_subdev_s_stream(struct v4l2_subdev *sd, int enable)
 #endif
 			tdm_rx->ws.tx_func_en = 1;
 			if (tdm_rx->id == 0) {
-#if IS_ENABLED(CONFIG_ARCH_SUN55IW3) || IS_ENABLED(CONFIG_ARCH_SUN55IW6)
+#if IS_ENABLED(CONFIG_ARCH_SUN55IW3) || IS_ENABLED(CONFIG_ARCH_SUN55IW6) || IS_ENABLED(CONFIG_ARCH_SUN60IW2)
 				tdm_rx->ws.pkg_en = 1;
 				tdm_rx->ws.lbc_en = 0;
 #else
@@ -1055,7 +1055,7 @@ static int sunxi_tdm_subdev_s_stream(struct v4l2_subdev *sd, int enable)
 #endif
 				tdm_rx->ws.tx_func_en = 1;
 				if (tdm_rx->id == 0 || tdm_rx->id == 1) {
-#if IS_ENABLED(CONFIG_ARCH_SUN55IW3) || IS_ENABLED(CONFIG_ARCH_SUN55IW6)
+#if IS_ENABLED(CONFIG_ARCH_SUN55IW3) || IS_ENABLED(CONFIG_ARCH_SUN55IW6) || IS_ENABLED(CONFIG_ARCH_SUN60IW2)
 					tdm_rx->ws.pkg_en = 1;
 					tdm_rx->ws.lbc_en = 0;
 #else

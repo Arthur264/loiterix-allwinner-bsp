@@ -31,7 +31,8 @@ MODULE_AUTHOR("cwh");
 MODULE_DESCRIPTION("A low-level driver for IMX415 sensors");
 MODULE_LICENSE("GPL");
 
-#define MCLK              (27*1000*1000)
+/* Waveshare IMX415-98 uses a 37.125 MHz INCK (dtoverlay clk-37125) */
+#define MCLK              37125000
 #define V4L2_IDENT_SENSOR 0x0415
 
 
@@ -205,6 +206,184 @@ static struct regval_list sensor_12bit_30fps_regs[] = {
 	{0x4001, 0x03},
 	{0x4004, 0xC0},
 	{0x4005, 0x06},
+	{0x400C, 0x00},
+	{0x4018, 0x7F},
+	{0x4019, 0x00},
+	{0x401A, 0x37},
+	{0x401B, 0x00},
+	{0x401C, 0x37},
+	{0x401D, 0x00},
+	{0x401E, 0xF7},
+	{0x401F, 0x00},
+	{0x4020, 0x3F},
+	{0x4021, 0x00},
+	{0x4022, 0x6F},
+	{0x4023, 0x00},
+	{0x4024, 0x3F},
+	{0x4025, 0x00},
+	{0x4026, 0x5F},
+	{0x4027, 0x00},
+	{0x4028, 0x2F},
+	{0x4029, 0x00},
+	{0x4074, 0x01},
+	{0x3000, 0x00},/* operation */
+	{0x3002, 0x00},
+};
+
+/*
+ * Waveshare IMX415-98 / RPi clk-37125: 4K30, 891Mbps, 4-lane, 10-bit out.
+ * Based on sensor_12bit_30fps_regs (891Mbps @ 27MHz) with INCK/BCWAIT values
+ * from mainline imx415.c (891Mbps @ 37125000).
+ */
+static struct regval_list sensor_10bit_30fps_37125_regs[] = {
+/* All pixel - 891Mbps - 37.125MHz */
+	{0x3000, 0x01},/* stanby                  */
+	{0x3001, 0x00},
+	{0x3002, 0x01},/* XMSTA start             */
+	{0x3003, 0x00},/* XMASTER SELECT MASTER   */
+	{0x3008, 0x7F},
+	{0x3009, 0x00},
+	{0x300A, 0x5B},
+	{0x300B, 0xA0},
+	{0x301C, 0x00},
+	{0x301D, 0x08},
+	{0x3020, 0x00},
+	{0x3021, 0x00},
+	{0x3022, 0x00},
+	{0x3024, 0xCA},/* VMAX */
+	{0x3025, 0x08},
+	{0x3026, 0x00},
+	{0x3028, 0x4C},/* HMAX */
+	{0x3029, 0x04},/*    */
+	{0x302C, 0x00},
+	{0x302D, 0x00},
+	{0x3030, 0x00},
+	{0x3031, 0x00},/* 10-bit AD */
+	{0x3032, 0x00},/* 10-bit MD */
+	{0x3033, 0x05},
+	{0x3040, 0x00},
+	{0x3041, 0x00},
+	{0x3042, 0x18},
+	{0x3043, 0x0F},
+	{0x3044, 0x18},
+	{0x3045, 0x0F},
+	{0x3046, 0x20},
+	{0x3047, 0x11},
+	{0x3050, 0x08},
+	{0x3051, 0x00},
+	{0x3052, 0x00},
+	{0x3054, 0x19},
+	{0x3055, 0x00},
+	{0x3056, 0x00},
+	{0x3058, 0x3E},
+	{0x3059, 0x00},
+	{0x305E, 0x00},
+	{0x3060, 0x25},
+	{0x3061, 0x00},
+	{0x3062, 0x00},
+	{0x3064, 0x4A},
+	{0x3065, 0x00},
+	{0x3066, 0x00},
+	{0x3090, 0x00},
+	{0x3091, 0x00},
+	{0x3092, 0x00},
+	{0x3093, 0x00},
+	{0x3094, 0x00},
+	{0x3095, 0x00},
+	{0x30C0, 0x2A},
+	{0x30C1, 0x00},
+	{0x30CC, 0x00},
+	{0x30CD, 0x00},
+	{0x30CF, 0x00},
+	{0x30D9, 0x06},
+	{0x30DA, 0x02},
+	{0x30E2, 0x32},
+	{0x30E3, 0x00},
+	{0x3115, 0x00},
+	{0x3116, 0x24},
+	{0x3118, 0xC0},
+	{0x3119, 0x00},
+	{0x311A, 0xE0},
+	{0x311B, 0x00},
+	{0x311E, 0x24},
+	{0x3260, 0x01},
+	{0x32C8, 0x01},
+	{0x32D4, 0x21},
+	{0x32EC, 0xA1},
+	{0x3452, 0x7F},
+	{0x3453, 0x03},
+	{0x358A, 0x04},
+	{0x35A1, 0x02},
+	{0x36BC, 0x0C},
+	{0x36CC, 0x53},
+	{0x36CD, 0x00},
+	{0x36CE, 0x3C},
+	{0x36D0, 0x8C},
+	{0x36D1, 0x00},
+	{0x36D2, 0x71},
+	{0x36D4, 0x3C},
+	{0x36D6, 0x53},
+	{0x36D7, 0x00},
+	{0x36D8, 0x71},
+	{0x36DA, 0x8C},
+	{0x36DB, 0x00},
+	{0x3701, 0x00},
+	{0x3724, 0x02},
+	{0x3726, 0x02},
+	{0x3732, 0x02},
+	{0x3734, 0x03},
+	{0x3736, 0x03},
+	{0x3742, 0x03},
+	{0x3862, 0xE0},
+	{0x38CC, 0x30},
+	{0x38CD, 0x2F},
+	{0x395C, 0x0C},
+	{0x3A42, 0xD1},
+	{0x3A4C, 0x77},
+	{0x3AE0, 0x02},
+	{0x3AEC, 0x0C},
+	{0x3B00, 0x2E},
+	{0x3B06, 0x29},
+	{0x3B98, 0x25},
+	{0x3B99, 0x21},
+	{0x3B9B, 0x13},
+	{0x3B9C, 0x13},
+	{0x3B9D, 0x13},
+	{0x3B9E, 0x13},
+	{0x3BA1, 0x00},
+	{0x3BA2, 0x06},
+	{0x3BA3, 0x0B},
+	{0x3BA4, 0x10},
+	{0x3BA5, 0x14},
+	{0x3BA6, 0x18},
+	{0x3BA7, 0x1A},
+	{0x3BA8, 0x1A},
+	{0x3BA9, 0x1A},
+	{0x3BAC, 0xED},
+	{0x3BAD, 0x01},
+	{0x3BAE, 0xF6},
+	{0x3BAF, 0x02},
+	{0x3BB0, 0xA2},
+	{0x3BB1, 0x03},
+	{0x3BB2, 0xE0},
+	{0x3BB3, 0x03},
+	{0x3BB4, 0xE0},
+	{0x3BB5, 0x03},
+	{0x3BB6, 0xE0},
+	{0x3BB7, 0x03},
+	{0x3BB8, 0xE0},
+	{0x3BBA, 0xE0},
+	{0x3BBC, 0xDA},
+	{0x3BBE, 0x88},
+	{0x3BC0, 0x44},
+	{0x3BC2, 0x7B},
+	{0x3BC4, 0xA2},
+	{0x3BC8, 0xBD},
+	{0x3BCA, 0xBD},
+	{0x4000, 0x10},
+	{0x4001, 0x03},
+	{0x4004, 0x48},/* TXCLKESC_FREQ for 37.125MHz INCK */
+	{0x4005, 0x09},
 	{0x400C, 0x00},
 	{0x4018, 0x7F},
 	{0x4019, 0x00},
@@ -1110,17 +1289,18 @@ static int sensor_power(struct v4l2_subdev *sd, int on)
 		vin_gpio_write(sd, RESET, CSI_GPIO_LOW);
 		vin_gpio_write(sd, PWDN, CSI_GPIO_LOW);
 		vin_gpio_write(sd, POWER_EN, CSI_GPIO_HIGH);
+		vin_set_pmu_channel(sd, CAMERAVDD, ON);
 		vin_set_pmu_channel(sd, IOVDD, ON);
 		usleep_range(2000, 2200);
 		vin_set_pmu_channel(sd, AVDD, ON);
 		vin_set_pmu_channel(sd, DVDD, ON);
 		vin_gpio_write(sd, RESET, CSI_GPIO_HIGH);
 		vin_gpio_write(sd, PWDN, CSI_GPIO_HIGH);
+		usleep_range(10000, 12000);
+		vin_set_mclk_freq(sd, MCLK);
 		usleep_range(100, 120);
 		vin_set_mclk(sd, ON);
-		usleep_range(100, 120);
-		vin_set_mclk_freq(sd, MCLK);
-		usleep_range(3000, 3200);
+		usleep_range(10000, 12000);
 		cci_unlock(sd);
 		break;
 	case PWR_OFF:
@@ -1135,6 +1315,7 @@ static int sensor_power(struct v4l2_subdev *sd, int on)
 		vin_set_pmu_channel(sd, AVDD, OFF);
 		vin_set_pmu_channel(sd, IOVDD, OFF);
 		vin_set_pmu_channel(sd, DVDD, OFF);
+		vin_set_pmu_channel(sd, CAMERAVDD, OFF);
 		vin_gpio_write(sd, POWER_EN, CSI_GPIO_LOW);
 		vin_gpio_set_status(sd, RESET, 0);
 		vin_gpio_set_status(sd, PWDN, 0);
@@ -1168,9 +1349,21 @@ static int sensor_reset(struct v4l2_subdev *sd, u32 val)
 static int sensor_detect(struct v4l2_subdev *sd)
 {
 	data_type rdval = 0;
-	int cnt = 0;
-	sensor_read(sd, 0x3008, &rdval);
-	sensor_print("%s read value is 0x%x\n", __func__, rdval);
+	int ret, cnt;
+
+	/* IMX415 has no chip-ID register; treat I2C NAK as "not present". */
+	for (cnt = 0; cnt < 3; cnt++) {
+		rdval = 0;
+		ret = sensor_read(sd, 0x3008, &rdval);
+		if (ret == 0)
+			break;
+		usleep_range(2000, 3000);
+	}
+	sensor_print("%s read value is 0x%x ret=%d\n", __func__, rdval, ret);
+	if (ret < 0) {
+		sensor_err("I2C detect failed at 0x3008, sensor not present\n");
+		return -ENODEV;
+	}
 	return 0;
 }
 
@@ -1244,13 +1437,6 @@ static struct sensor_format_struct sensor_formats[] = {
 		.regs_size = ARRAY_SIZE(sensor_fmt_raw),
 		.bpp = 1
 	},
-	{
-		.desc = "Raw RGB Bayer",
-		.mbus_code = MEDIA_BUS_FMT_SGBRG12_1X12,
-		.regs = sensor_fmt_raw,
-		.regs_size = ARRAY_SIZE(sensor_fmt_raw),
-		.bpp = 1
-	},
 };
 #define N_FMTS ARRAY_SIZE(sensor_formats)
 
@@ -1280,23 +1466,23 @@ static struct sensor_win_size sensor_win_sizes[] = {
 	 .set_size = NULL,
 	 },
 #else
-	 {  /* 3840*2160 30fps 10bit */
+	 {  /* 3840*2160 30fps 10bit, Waveshare IMX415-98 @ 37.125MHz / 891Mbps */
 	 .width = 3840,
 	 .height = 2160,
 	 .hoffset = 0,
 	 .voffset = 0,
-	 .hts = 1066,
-	 .vts = 2251,
-	 .pclk = 72 * 1000 * 1000,
-	 .mipi_bps = 720 * 1000 * 1000,
+	 .hts = 1100,
+	 .vts = 2250,
+	 .pclk = 74250000,
+	 .mipi_bps = 891 * 1000 * 1000,
 	 .fps_fixed = 30,
 	 .bin_factor = 1,
 	 .intg_min = 8 << 4,
-	 .intg_max = (2251 - 4) << 4,
+	 .intg_max = (2250 - 4) << 4,
 	 .gain_min = 1<<4,
 	 .gain_max = 5631<<4,
-	 .regs = sensor_10bit_30fps_regs,
-	 .regs_size = ARRAY_SIZE(sensor_10bit_30fps_regs),
+	 .regs = sensor_10bit_30fps_37125_regs,
+	 .regs_size = ARRAY_SIZE(sensor_10bit_30fps_37125_regs),
 	 .set_size = NULL,
 	 },
 	 #endif
@@ -1479,10 +1665,19 @@ static int sensor_reg_init(struct sensor_info *info)
 
 	sensor_dbg("sensor_reg_init\n");
 
-	sensor_write_array(sd, sensor_fmt->regs, sensor_fmt->regs_size);
+	ret = sensor_write_array(sd, sensor_fmt->regs, sensor_fmt->regs_size);
+	if (ret < 0) {
+		sensor_err("write sensor_fmt regs error\n");
+		return ret;
+	}
 
-	if (wsize->regs)
-		sensor_write_array(sd, wsize->regs, wsize->regs_size);
+	if (wsize->regs) {
+		ret = sensor_write_array(sd, wsize->regs, wsize->regs_size);
+		if (ret < 0) {
+			sensor_err("write sensor win size regs error\n");
+			return ret;
+		}
+	}
 
 	if (wsize->set_size)
 		wsize->set_size(sd);
@@ -1631,6 +1826,7 @@ static int sensor_probe(struct i2c_client *client)
 	info->fmt = &sensor_formats[0];
 	info->fmt_pt = &sensor_formats[0];
 	info->win_pt = &sensor_win_sizes[0];
+	info->current_wins = &sensor_win_sizes[0];
 	info->fmt_num = N_FMTS;
 	info->win_size_num = N_WIN_SIZES;
 	info->sensor_field = V4L2_FIELD_NONE;
