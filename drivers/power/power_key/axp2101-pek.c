@@ -1235,9 +1235,8 @@ static int axp2101_powerkey_resume_noirq(struct device *dev)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct axp20x_pek *axp20x_pek = platform_get_drvdata(pdev);
 	struct sunxi_power_dev *axp20x = axp20x_pek->axp20x;
-	struct input_dev *idev = axp20x_pek->input;
 	struct regmap *regmap = axp20x->regmap;
-	unsigned int reg = 0, reg_mask_n = 0, reg_mask_p = 0, reg_val = 0;
+	unsigned int reg = 0, reg_mask_n = 0, reg_mask_p = 0;
 
 	switch (axp20x->variant) {
 	case AXP2202_ID:
@@ -1255,12 +1254,12 @@ static int axp2101_powerkey_resume_noirq(struct device *dev)
 		break;
 	}
 
-	regmap_read(regmap, reg, &reg_val);
-	if (reg_val & (reg_mask_n | reg_mask_p)) {
-		regmap_write(regmap, reg, reg_mask_n);
-		input_report_key(idev, KEY_POWER, true);
-		input_sync(idev);
-	}
+	/*
+	 * Clear interrupts from button presses during suspend, to avoid
+	 * a wakeup power-button press getting reported to userspace.
+	 */
+	regmap_write(regmap, reg, reg_mask_n | reg_mask_p);
+
 	return 0;
 }
 
