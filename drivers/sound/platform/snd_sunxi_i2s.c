@@ -2086,7 +2086,7 @@ static void snd_sunxi_dts_params_init(struct platform_device *pdev, struct sunxi
 	unsigned int i, j, k;
 	int ret;
 	unsigned int tmp_val0, tmp_val1;
-	unsigned int tx_pin_cnt;
+	int tx_pin_cnt;
 	char tx_pin_chmap_str[32] = "";
 	struct device_node *np = pdev->dev.of_node;
 
@@ -2140,19 +2140,33 @@ static void snd_sunxi_dts_params_init(struct platform_device *pdev, struct sunxi
 		dts->tdm_num = tmp_val0;
 	}
 
-	tx_pin_cnt = of_property_count_elems_of_size(np, "tx-pin", 4);
-	for (i = 0; i < tx_pin_cnt; ++i) {
+	/*
+	 * Capture-only boards (e.g. ICS43434 on i2s0) omit "tx-pin".
+	 * of_property_count_elems_of_size() returns -EINVAL/-ENODATA then;
+	 * storing that in unsigned made the loop run ~4G times, flooding
+	 * printk and stalling RCU while the DAI never registered.
+	 */
+	tx_pin_cnt = of_property_count_elems_of_size(np, "tx-pin", sizeof(u32));
+	if (tx_pin_cnt < 0) {
+		SND_LOG_DEBUG("tx-pin missing (capture-only?), disable all tx pins\n");
+		tx_pin_cnt = 0;
+	} else if (tx_pin_cnt > ARRAY_SIZE(dts->tx_pin)) {
+		SND_LOG_WARN("tx-pin has %d entries, clamping to %zu\n",
+			     tx_pin_cnt, ARRAY_SIZE(dts->tx_pin));
+		tx_pin_cnt = ARRAY_SIZE(dts->tx_pin);
+	}
+
+	for (i = 0; i < (unsigned int)tx_pin_cnt; ++i) {
 		ret = of_property_read_u32_index(np, "tx-pin", i, &tmp_val0);
-		if (tmp_val0 > 3) {
-			SND_LOG_WARN("tx-pin[%u] config invalid\n", i);
+		if (ret < 0) {
+			SND_LOG_WARN("tx-pin[%u] read failed (%d)\n", i, ret);
 			continue;
 		}
-		if (ret < 0) {
-			dts->tx_pin[tmp_val0] = false;
-			SND_LOG_WARN("tx-pin[%u] config missing\n", i);
-		} else {
-			dts->tx_pin[tmp_val0] = true;
+		if (tmp_val0 >= ARRAY_SIZE(dts->tx_pin)) {
+			SND_LOG_WARN("tx-pin[%u] config invalid: %u\n", i, tmp_val0);
+			continue;
 		}
+		dts->tx_pin[tmp_val0] = true;
 
 		/* tmp_val0 length shounld be 1 char */
 		snprintf(tx_pin_chmap_str, 32, "tx-pin%u-chmap", tmp_val0);
@@ -2160,7 +2174,7 @@ static void snd_sunxi_dts_params_init(struct platform_device *pdev, struct sunxi
 			ret = of_property_read_u32_index(np, tx_pin_chmap_str, j, &tmp_val1);
 			if (j == 0 && ret < 0) {
 				SND_LOG_DEBUG("tx-pin%u-chmap config miss, default set:"
-					      "0 1 2 ... %u\n", i, quirks->slot_num_max - 1);
+					      "0 1 2 ... %u\n", tmp_val0, quirks->slot_num_max - 1);
 				for (k = 0; k < quirks->slot_num_max; ++k)
 					dts->tx_pin_chmap[tmp_val0][k] = k;
 				break;
@@ -2169,7 +2183,7 @@ static void snd_sunxi_dts_params_init(struct platform_device *pdev, struct sunxi
 			} else if (tmp_val1 >= quirks->slot_num_max) {
 				SND_LOG_WARN("tx-pin%u-chmap[%u] config invalid: %u,"
 					     "should less than %u, default set 0\n",
-					     i, j, tmp_val1, quirks->slot_num_max);
+					     tmp_val0, j, tmp_val1, quirks->slot_num_max);
 				dts->tx_pin_chmap[tmp_val0][j] = 0;
 			} else {
 				dts->tx_pin_chmap[tmp_val0][j] = tmp_val1;
