@@ -10,6 +10,7 @@
  */
 
 #include <linux/kernel.h>
+#include <linux/atomic.h>
 #include <linux/delay.h>
 #include <linux/clk.h>
 #include <linux/cdev.h>
@@ -131,6 +132,7 @@ struct sunxi_drm_edp {
 
 	bool hpd_state;
 	bool hpd_state_now;
+	atomic_t hpd_disconnect_pending;
 	bool dpcd_parsed;
 	bool use_dpcd;
 	/*FIXME:TODO: optimize relate code*/
@@ -422,11 +424,13 @@ static int edp_sink_extcon_evt(struct notifier_block *nb,
 			schedule_delayed_work(&drm_edp->typec_hpd_monitor, msecs_to_jiffies(1 * 1000));
 		}
 	} else {
-		cancel_delayed_work_sync(&drm_edp->typec_hpd_monitor);
+		cancel_delayed_work(&drm_edp->typec_hpd_monitor);
 	}
+	WRITE_ONCE(drm_edp->hpd_state_now, !!state_inner);
+	/* Preserve a low pulse even if HPD rises before the next poll. */
+	if (!state && drm_edp->desc->connector_type == DRM_MODE_CONNECTOR_DisplayPort)
+		atomic_set_release(&drm_edp->hpd_disconnect_pending, 1);
 	mutex_unlock(&drm_edp->typec_dp_lock);
-
-	drm_edp->hpd_state_now = state_inner ? true : false;
 
 	return NOTIFY_OK;
 }
@@ -730,6 +734,7 @@ s32 edp_running_thread(void *parg)
 	struct sunxi_drm_edp *drm_edp = NULL;
 	struct edp_debug *edp_debug;
 	struct sunxi_edp_hw_desc *edp_hw = NULL;;
+	bool hpd;
 
 	if (!parg) {
 		EDP_ERR("NUll ndl\n");
@@ -764,15 +769,26 @@ s32 edp_running_thread(void *parg)
 			}
 			continue;
 		} else {
-			if (drm_edp->hpd_state_now != drm_edp->hpd_state) {
-				if (!drm_edp->hpd_state_now)
+			if (atomic_read(&drm_edp->hpd_disconnect_pending) &&
+			    drm_edp->hpd_state) {
+				edp_hotplugout_proc(drm_edp);
+				edp_report_hpd_work(drm_edp, EDP_HPD_PLUGOUT);
+				drm_edp->hpd_state = false;
+				/* Expose the disconnect before reporting a reconnect. */
+				continue;
+			}
+			if (!drm_edp->hpd_state)
+				atomic_xchg(&drm_edp->hpd_disconnect_pending, 0);
+			hpd = READ_ONCE(drm_edp->hpd_state_now);
+			if (hpd != drm_edp->hpd_state) {
+				if (!hpd)
 					edp_hotplugout_proc(drm_edp);
 				else
 					edp_hotplugin_proc(drm_edp);
 
-				edp_report_hpd_work(drm_edp, drm_edp->hpd_state_now);
-				drm_edp->hpd_state = drm_edp->hpd_state_now;
-				EDP_DRV_DBG("hpd = %d\n", drm_edp->hpd_state_now);
+				edp_report_hpd_work(drm_edp, hpd);
+				drm_edp->hpd_state = hpd;
+				EDP_DRV_DBG("hpd = %d\n", hpd);
 			}
 		}
 	}
@@ -3626,13 +3642,14 @@ drm_edp_connector_detect(struct drm_connector *connector, bool force)
 	if (drm_edp->desc->connector_type == DRM_MODE_CONNECTOR_eDP) {
 		return connector_status_connected;
 	}
-
 	if (edp_debug->hpd_mask)
 		return drm_edp->hpd_state ? connector_status_connected :
 					connector_status_disconnected;
-	else
-		return drm_edp->hpd_state_now ? connector_status_connected :
-					connector_status_disconnected;
+	if (drm_edp->extcon_sink &&
+	    atomic_read(&drm_edp->hpd_disconnect_pending))
+		return connector_status_disconnected;
+	return READ_ONCE(drm_edp->hpd_state_now) ? connector_status_connected :
+						connector_status_disconnected;
 }
 
 
@@ -5044,7 +5061,7 @@ static void drm_edp_typec_hpd_monitor(struct work_struct *work)
 	if (drm_edp->typec_aux_retry > 0 && drm_edp->typec_aux_retry < 30) {
 		if (typec_dp_try_communication(drm_edp)) {
 			drm_edp->typec_aux_retry = 0;
-			drm_edp->hpd_state_now = true;
+			WRITE_ONCE(drm_edp->hpd_state_now, true);
 		} else {
 			drm_edp->typec_aux_retry++;
 			schedule_delayed_work(&drm_edp->typec_hpd_monitor, msecs_to_jiffies(1 * 1000));
@@ -5070,6 +5087,9 @@ static int sunxi_drm_edp_bind(struct device *dev, struct device *master,
 	drm_edp = kzalloc(sizeof(*drm_edp), GFP_KERNEL);
 	if (!drm_edp)
 		return -ENOMEM;
+	atomic_set(&drm_edp->hpd_disconnect_pending, 0);
+	INIT_DELAYED_WORK(&drm_edp->typec_hpd_monitor, drm_edp_typec_hpd_monitor);
+	mutex_init(&drm_edp->typec_dp_lock);
 
 	match = of_match_device(drm_edp_match, dev);
 	if (!match) {
@@ -5166,9 +5186,6 @@ static int sunxi_drm_edp_bind(struct device *dev, struct device *master,
 		sunxi_edp_register_audio_driver(dev);
 
 	/* init something for typec application */
-	INIT_DELAYED_WORK(&drm_edp->typec_hpd_monitor, drm_edp_typec_hpd_monitor);
-	mutex_init(&drm_edp->typec_dp_lock);
-
 	for(int i = 0; i < 5; i++) {
 		if (typec_dp_try_communication(drm_edp)) {
 			EDP_INFO("typec aux communication success after retry %d times\n", i);
