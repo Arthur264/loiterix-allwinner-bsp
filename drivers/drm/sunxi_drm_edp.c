@@ -138,6 +138,7 @@ struct sunxi_drm_edp {
 	/*end FIXME*/
 	bool use_debug_para;
 	bool is_enabled;
+	bool link_retrain_pending;
 
 	bool sw_enable;
 	bool boot_enabled;
@@ -3725,6 +3726,31 @@ static void drm_edp_connector_state_reset(struct drm_connector *connector)
 	estate->color_depth = DISP_DATA_8BITS;
 }
 
+static int sunxi_edp_connector_atomic_check(struct drm_connector *connector,
+					    struct drm_atomic_state *state)
+{
+	struct sunxi_drm_edp *drm_edp = drm_connector_to_sunxi_drm_edp(connector);
+	struct drm_connector_state *conn_state;
+	struct drm_crtc_state *crtc_state;
+
+	if (!READ_ONCE(drm_edp->link_retrain_pending))
+		return 0;
+
+	conn_state = drm_atomic_get_new_connector_state(state, connector);
+	if (!conn_state->crtc)
+		return 0;
+
+	crtc_state = drm_atomic_get_crtc_state(state, conn_state->crtc);
+	if (IS_ERR(crtc_state))
+		return PTR_ERR(crtc_state);
+
+	/* HPD can stop the hardware stream while the CRTC remains active. */
+	if (crtc_state->active)
+		crtc_state->connectors_changed = true;
+
+	return 0;
+}
+
 static const struct drm_connector_funcs sunxi_edp_connector_funcs = {
 	.detect = drm_edp_connector_detect,
 	.fill_modes = drm_helper_probe_single_connector_modes,
@@ -3740,6 +3766,7 @@ static const struct drm_connector_helper_funcs
 	sunxi_edp_connector_helper_funcs = {
 		.get_modes = sunxi_edp_connector_get_modes,
 		.mode_valid = sunxi_edp_connector_mode_valid,
+		.atomic_check = sunxi_edp_connector_atomic_check,
 	};
 
 static bool sunxi_edp_fifo_check(void *data)
@@ -3839,6 +3866,11 @@ void sunxi_edp_encoder_atomic_enable(struct drm_encoder *encoder,
 	struct edp_lane_para *lane_para = &drm_edp->edp_core.lane_para;
 	struct disp_output_config disp_cfg;
 
+	/* A disconnect during hardware enable must remain pending. */
+	if (!drm_edp->sw_enable &&
+	    drm_edp->desc->connector_type == DRM_MODE_CONNECTOR_DisplayPort)
+		WRITE_ONCE(drm_edp->link_retrain_pending, false);
+
 	/* update color_format/color_depth from property */
 	if (drm_edp->desc->connector_type == DRM_MODE_CONNECTOR_DisplayPort) {
 		lane_para->color_fmt = estate->color_format;
@@ -3913,6 +3945,12 @@ void sunxi_edp_encoder_atomic_enable(struct drm_encoder *encoder,
 
 	DRM_DEBUG_DRIVER("%s finish, sw = %d\n", __FUNCTION__, drm_edp->sw_enable);
 
+	/* Hardware recovery also completes any pending bootloader handoff. */
+	if (!drm_edp->sw_enable &&
+	    drm_edp->desc->connector_type == DRM_MODE_CONNECTOR_DisplayPort &&
+	    sunxi_drm_check_if_need_sw_enable(connector))
+		sunxi_drm_signal_sw_enable_done(crtc);
+
 	/* ensure edp audio always enable after video, avoid display-audio async issue */
 	extcon_set_state_sync(drm_edp->extcon_edp, EXTCON_JACK_VIDEO_OUT, EDP_HPD_PLUGIN);
 
@@ -3921,6 +3959,8 @@ void sunxi_edp_encoder_atomic_enable(struct drm_encoder *encoder,
 FAIL:
 	DRM_DEBUG_DRIVER("%s fail!\n", __FUNCTION__);
 	drm_edp->is_enabled = false;
+	if (drm_edp->desc->connector_type == DRM_MODE_CONNECTOR_DisplayPort)
+		WRITE_ONCE(drm_edp->link_retrain_pending, true);
 }
 
 int sunxi_edp_encoder_atomic_check(struct drm_encoder *encoder,
@@ -3964,7 +4004,8 @@ int sunxi_edp_encoder_atomic_check(struct drm_encoder *encoder,
 	scrtc_state->set_backlight_value = sunxi_edp_set_backlight_value;
 	scrtc_state->output_dev_data = drm_edp;
 	if (conn_state->crtc) {
-		drm_edp->sw_enable = sunxi_drm_check_if_need_sw_enable(conn_state->connector);
+		drm_edp->sw_enable = sunxi_drm_check_if_need_sw_enable(conn_state->connector) &&
+				     !READ_ONCE(drm_edp->link_retrain_pending);
 		scrtc_state->sw_enable = drm_edp->sw_enable;
 	}
 
@@ -4589,6 +4630,7 @@ s32 drm_dp_output_plugout(struct sunxi_drm_edp *drm_edp)
 	struct edp_tx_core *edp_core;
 	struct edid *edid;
 	struct sunxi_edp_hw_desc *edp_hw = &drm_edp->edp_hw;
+	s32 ret;
 
 	edp_core = &drm_edp->edp_core;
 	edid = edp_core->edid;
@@ -4602,7 +4644,9 @@ s32 drm_dp_output_plugout(struct sunxi_drm_edp *drm_edp)
 
 	sink_cap_reset(drm_edp);
 
-	return edp_hw_link_stop(edp_hw);
+	ret = edp_hw_link_stop(edp_hw);
+	WRITE_ONCE(drm_edp->link_retrain_pending, true);
+	return ret;
 }
 
 s32 drm_dp_output_runtime_suspend(struct sunxi_drm_edp *drm_edp)
