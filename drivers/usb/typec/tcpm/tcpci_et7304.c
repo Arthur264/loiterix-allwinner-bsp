@@ -16,6 +16,7 @@
 #include <linux/regulator/consumer.h>
 #include <linux/gpio.h>
 #include <linux/of_gpio.h>
+#include <linux/pm_wakeirq.h>
 #include <linux/version.h>
 #include <linux/usb/role.h>
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 130)
@@ -412,6 +413,12 @@ static int et7304_probe(struct i2c_client *client)
 		if (ret < 0)
 			return ret;
 		client->irq = chip->gpio_int_n_irq;
+		if (device_can_wakeup(chip->dev)) {
+			/* The I2C core could not attach this legacy GPIO IRQ. */
+			ret = dev_pm_set_wake_irq(chip->dev, client->irq);
+			if (ret)
+				return ret;
+		}
 	}
 
 	chip->tcpci = tcpci_register_port(chip->dev, &chip->data);
@@ -434,12 +441,6 @@ static int et7304_probe(struct i2c_client *client)
 
 	if (ret < 0)
 		return ret;
-
-	if (!device_property_read_bool(chip->dev, "wakeup-source")) {
-		dev_info(chip->dev, "wakeup source is disabled!\n");
-	} else {
-		enable_irq_wake(client->irq);
-	}
 
 	dev_err(&client->dev, "%s successful\n", __func__);
 
