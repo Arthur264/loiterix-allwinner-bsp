@@ -26,6 +26,7 @@
 #include <linux/clk.h>
 #include <linux/reset/sunxi.h>
 #include <linux/gpio.h>
+#include <linux/gpio/consumer.h>
 #include <linux/platform_device.h>
 #include <linux/spinlock.h>
 #include <linux/scatterlist.h>
@@ -1610,7 +1611,9 @@ static irqreturn_t sunxi_mmc_handle_do_bottom_half(void *dev_id)
 		 * so having it in a lock is a very bad idea.
 		 */
 		sunxi_mmc_send_manual_stop(host, mrq_stop);
-		if (gpio_is_valid(host->card_pwr_gpio) && (host->card_pwr_mode == CARD_PWR_GPIO_AUTO))
+		if (gpio_is_valid(host->card_pwr_gpio) &&
+		    host->card_pwr_mode == CARD_PWR_GPIO_AUTO &&
+		    !host->card_power_cycle_on_power_up)
 			gpio_set_value(host->card_pwr_gpio,
 				       (host->
 					ctl_spec_cap &
@@ -1893,6 +1896,7 @@ static int sunxi_mmc_bus_clk_en(struct sunxi_mmc_host *host, int enable)
 static void sunxi_mmc_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 {
 	struct sunxi_mmc_host *host = mmc_priv(mmc);
+	struct pinctrl_state *pins;
 	int rval;
 	static const char * const bus_mode[] = { "", "OD", "PP" };
 	static const char * const pwr_mode[] = { "OFF", "UP", "ON", "udef" };
@@ -1957,12 +1961,15 @@ static void sunxi_mmc_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 		}
 
 		if (gpio_is_valid(host->card_pwr_gpio) && (host->card_pwr_mode == CARD_PWR_GPIO_AUTO)) {
-			if (!IS_ERR(host->pins_sleep)) {
-				rval = pinctrl_select_state(host->pinctrl,
-							 host->pins_sleep);
+			pins = host->card_power_cycle_on_power_up ?
+				host->pins_power_cycle : host->pins_sleep;
+			if (!IS_ERR(pins)) {
+				rval = pinctrl_select_state(host->pinctrl, pins);
 				if (rval) {
 					SM_ERR(mmc_dev(mmc),
-						"could not set sleep pins\n");
+						"could not set %s pins\n",
+						host->card_power_cycle_on_power_up ?
+						"power-cycle" : "sleep");
 					return;
 				}
 			}
@@ -1976,7 +1983,8 @@ static void sunxi_mmc_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 					ctl_spec_cap &
 					CARD_PWR_GPIO_HIGH_ACTIVE) ? 1 : 0);
 			/* delay to ensure voltage stability */
-			msleep(1);
+			msleep(host->card_power_cycle_on_power_up ?
+			       ios->power_delay_ms : 1);
 		}
 
 		if (!IS_ERR(host->pins_default)) {
@@ -2027,7 +2035,9 @@ static void sunxi_mmc_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 			}
 		}
 
-		if (gpio_is_valid(host->card_pwr_gpio) && (host->card_pwr_mode == CARD_PWR_GPIO_AUTO)) {
+		if (gpio_is_valid(host->card_pwr_gpio) &&
+		    host->card_pwr_mode == CARD_PWR_GPIO_AUTO &&
+		    !host->card_power_cycle_on_power_up) {
 			gpio_set_value(host->card_pwr_gpio,
 				       (host->
 					ctl_spec_cap &
@@ -3569,6 +3579,7 @@ static int sunxi_mmc_resource_request(struct sunxi_mmc_host *host,
 				      struct platform_device *pdev)
 {
 	struct device_node *np = pdev->dev.of_node;
+	struct gpio_desc *card_pwr;
 	int ret;
 	u32 caps_val = 0;
 	struct device_node *apk_np = of_find_node_by_name(NULL, "auto_print");
@@ -3776,18 +3787,46 @@ static int sunxi_mmc_resource_request(struct sunxi_mmc_host *host,
 		}
 	}
 
-	host->card_pwr_gpio = of_get_named_gpio(np, "card-pwr-gpios", 0);
-	if (gpio_is_valid(host->card_pwr_gpio)) {
-		ret =
-		    devm_gpio_request_one(&pdev->dev, host->card_pwr_gpio,
-					  GPIOF_DIR_OUT, "card-pwr-gpios");
-		if (ret < 0)
-			SM_ERR(&pdev->dev,
-				"could not get  card-pwr-gpios gpio\n");
+	host->card_power_cycle_on_power_up = of_property_read_bool(np,
+					"allwinner,card-power-cycle-on-power-up");
+	if (host->card_power_cycle_on_power_up) {
+		card_pwr = devm_gpiod_get(&pdev->dev, "card-pwr", GPIOD_OUT_HIGH);
+		if (IS_ERR(card_pwr)) {
+			ret = PTR_ERR(card_pwr);
+			SM_ERR(&pdev->dev, "card power-cycle GPIO unavailable: %d\n", ret);
+			goto error_disable_regulator;
+		}
+
+		host->card_pwr_gpio = desc_to_gpio(card_pwr);
+		if (!gpio_is_valid(host->card_pwr_gpio)) {
+			ret = -EINVAL;
+			SM_ERR(&pdev->dev, "card power-cycle GPIO has no integer mapping\n");
+			goto error_disable_regulator;
+		}
+
+		if (gpiod_is_active_low(card_pwr))
+			host->ctl_spec_cap &= ~CARD_PWR_GPIO_HIGH_ACTIVE;
+		else
+			host->ctl_spec_cap |= CARD_PWR_GPIO_HIGH_ACTIVE;
+	} else {
+		host->card_pwr_gpio = of_get_named_gpio(np, "card-pwr-gpios", 0);
+		if (gpio_is_valid(host->card_pwr_gpio)) {
+			ret =
+			    devm_gpio_request_one(&pdev->dev, host->card_pwr_gpio,
+						  GPIOF_DIR_OUT, "card-pwr-gpios");
+			if (ret < 0)
+				SM_ERR(&pdev->dev,
+					"could not get  card-pwr-gpios gpio\n");
+		}
 	}
 
 	host->pinctrl = devm_pinctrl_get(&pdev->dev);
 	if (IS_ERR(host->pinctrl)) {
+		if (host->card_power_cycle_on_power_up) {
+			ret = PTR_ERR(host->pinctrl);
+			SM_ERR(&pdev->dev, "card power-cycle requires pinctrl: %d\n", ret);
+			goto error_disable_regulator;
+		}
 		SM_WARN(&pdev->dev,
 			 "Could not get pinctrl,check if pin is needed\n");
 	}
@@ -3795,8 +3834,23 @@ static int sunxi_mmc_resource_request(struct sunxi_mmc_host *host,
 	host->pins_default = pinctrl_lookup_state(host->pinctrl,
 						  PINCTRL_STATE_DEFAULT);
 	if (IS_ERR(host->pins_default)) {
+		if (host->card_power_cycle_on_power_up) {
+			ret = PTR_ERR(host->pins_default);
+			SM_ERR(&pdev->dev, "card power-cycle requires default pins: %d\n", ret);
+			goto error_disable_regulator;
+		}
 		SM_WARN(&pdev->dev,
 			 "could not get default pinstate,check if pin is needed\n");
+	}
+
+	if (host->card_power_cycle_on_power_up) {
+		host->pins_power_cycle = pinctrl_lookup_state(host->pinctrl,
+							    "power-cycle");
+		if (IS_ERR(host->pins_power_cycle)) {
+			ret = PTR_ERR(host->pins_power_cycle);
+			SM_ERR(&pdev->dev, "could not get power-cycle pinstate: %d\n", ret);
+			goto error_disable_regulator;
+		}
 	}
 
 	if (apk_np

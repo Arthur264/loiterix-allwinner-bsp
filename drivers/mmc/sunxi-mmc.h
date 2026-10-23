@@ -456,6 +456,7 @@ struct sunxi_mmc_host {
 	struct pinctrl_state *pins_default;
 	struct pinctrl_state *pins_bias_1v8;
 	struct pinctrl_state *pins_sleep;
+	struct pinctrl_state *pins_power_cycle;
 	struct pinctrl_state *pins_uart_jtag;
 
 	/* sys node */
@@ -547,6 +548,7 @@ struct sunxi_mmc_host {
 	struct sunxi_mmc_supply supply;
 	int card_pwr_gpio;
 	int card_pwr_mode;
+	bool card_power_cycle_on_power_up;
 
 	u32 retry_cnt;
 	u32 errno_retry;
