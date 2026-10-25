@@ -3922,8 +3922,20 @@ static int vin_g_volatile_ctrl(struct v4l2_ctrl *ctrl)
 	struct v4l2_control c;
 	int ret = 0;
 
+	/*
+	 * The pipeline sensor subdev is only linked once the video node has
+	 * selected an input; control reads (e.g. v4l2-ctl --all, wireplumber)
+	 * may arrive before that and must not dereference a NULL subdev.
+	 */
+	if (!inst || !sensor)
+		return -ENODEV;
+
 	c.id = ctrl->id;
 	if (inst->is_isp_used && inst->is_bayer_raw) {
+		if (!sensor->ctrl_handler &&
+		    (ctrl->id == V4L2_CID_EXPOSURE || ctrl->id == V4L2_CID_GAIN ||
+		     ctrl->id == V4L2_CID_EXPOSURE_ABSOLUTE))
+			return -ENODEV;
 		switch (ctrl->id) {
 		case V4L2_CID_EXPOSURE:
 			v4l2_g_ctrl(sensor->ctrl_handler, &c);
@@ -3967,6 +3979,8 @@ static int vin_g_volatile_ctrl(struct v4l2_ctrl *ctrl)
 			c.value = inst->is_bayer_raw;
 			break;
 		case V4L2_CID_FLASH_LED_MODE:
+			if (!flash)
+				return -ENODEV;
 			ret = v4l2_g_ctrl(flash->ctrl_handler, &c);
 			break;
 		case V4L2_CID_AUTO_FOCUS_STATUS:
@@ -4270,6 +4284,30 @@ static int vin_s_ctrl(struct v4l2_ctrl *ctrl)
 		break;
 	default:
 		break;
+	}
+
+	/* see vin_g_volatile_ctrl(): subdevs may not be linked yet */
+	if (!inst || !sensor)
+		return -ENODEV;
+	if (inst->is_isp_used && inst->is_bayer_raw && !isp)
+		return -ENODEV;
+
+	/*
+	 * GAIN/EXPOSURE normally go to the ISP, whose userspace server then
+	 * programs the sensor via VIDIOC_VIN_SENSOR_EXP_GAIN. Without that
+	 * server (h3a stats never enabled) nothing would reach the sensor,
+	 * so pass them straight to the sensor's own controls.
+	 */
+	if (inst->is_isp_used && inst->is_bayer_raw &&
+	    (ctrl->id == V4L2_CID_GAIN || ctrl->id == V4L2_CID_EXPOSURE)) {
+		struct isp_dev *isp_dev = v4l2_get_subdevdata(isp);
+		bool h3a_on = isp_dev && isp_dev->h3a_stat.state == ISPSTAT_ENABLED;
+
+		if (!h3a_on) {
+			if (!sensor->ctrl_handler)
+				return -ENODEV;
+			return v4l2_s_ctrl(NULL, sensor->ctrl_handler, &c);
+		}
 	}
 
 	if (inst->is_isp_used && inst->is_bayer_raw) {
