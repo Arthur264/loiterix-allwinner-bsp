@@ -294,6 +294,34 @@ static struct sensor_win_size *sensor_find_frame_size(struct v4l2_subdev *sd,
 		}
 	}
 
+	/*
+	 * Only honour the fps match if an fps-matching window is also the
+	 * closest covering resolution; otherwise e.g. a 1920x1080 request
+	 * with the default 30fps tpf gets the 3840x2160@30 window instead of
+	 * a native 1080p window running at another rate.
+	 */
+	if (fps_flag) {
+		unsigned int wdr = info->isp_wdr_mode;
+		int all_dist = INT_MAX, fps_dist = INT_MAX;
+
+		if (wdr != ISP_COMANDING_MODE && wdr != ISP_DOL_WDR_MODE)
+			wdr = ISP_NORMAL_MODE;
+		ws = info->win_pt;
+		for (i = 0; i < info->win_size_num; ++i, ++ws) {
+			int dist = abs(ws->width - fmt->width) +
+				   abs(ws->height - fmt->height);
+
+			if (ws->wdr_mode != wdr || ws->width < fmt->width ||
+			    ws->height < fmt->height)
+				continue;
+			all_dist = min(all_dist, dist);
+			if (ws->fps_fixed == info->tpf.denominator)
+				fps_dist = min(fps_dist, dist);
+		}
+		if (fps_dist > all_dist)
+			fps_flag = 0;
+	}
+
 	/* judge if sensor have the right resoulution win */
 	ws = info->win_pt;
 	if (info->isp_wdr_mode == ISP_COMANDING_MODE) {
@@ -913,12 +941,15 @@ int sensor_s_parm(struct v4l2_subdev *sd, struct v4l2_streamparm *parms)
 	struct v4l2_captureparm *cp = &parms->parm.capture;
 	struct sensor_info *info = to_state(sd);
 
-	if (parms->type != V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE)
+	/* v4l2 core may hand us the single-planar type for an mplane node */
+	if (parms->type != V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE &&
+	    parms->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
 		return -EINVAL;
 	if (info->tpf.numerator == 0)
 		return -EINVAL;
 	info->capture_mode = cp->capturemode;
-	info->tpf = cp->timeperframe;
+	if (cp->timeperframe.numerator && cp->timeperframe.denominator)
+		info->tpf = cp->timeperframe;
 	info->use_current_win = cp->reserved[0];
 	info->isp_wdr_mode = cp->reserved[1];
 	info->large_image = cp->reserved[2];

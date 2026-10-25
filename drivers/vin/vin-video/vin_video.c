@@ -4373,6 +4373,30 @@ static int vin_s_ctrl(struct v4l2_ctrl *ctrl)
 		break;
 	}
 
+	/* see vin_g_volatile_ctrl(): subdevs may not be linked yet */
+	if (!inst || !sensor)
+		return -ENODEV;
+	if (inst->is_isp_used && inst->is_bayer_raw && !isp)
+		return -ENODEV;
+
+	/*
+	 * GAIN/EXPOSURE normally go to the ISP, whose userspace server then
+	 * programs the sensor via VIDIOC_VIN_SENSOR_EXP_GAIN. Without that
+	 * server (h3a stats never enabled) nothing would reach the sensor,
+	 * so pass them straight to the sensor's own controls.
+	 */
+	if (inst->is_isp_used && inst->is_bayer_raw &&
+	    (ctrl->id == V4L2_CID_GAIN || ctrl->id == V4L2_CID_EXPOSURE)) {
+		struct isp_dev *isp_dev = v4l2_get_subdevdata(isp);
+		bool h3a_on = isp_dev && isp_dev->h3a_stat.state == ISPSTAT_ENABLED;
+
+		if (!h3a_on) {
+			if (!sensor->ctrl_handler)
+				return -ENODEV;
+			return v4l2_s_ctrl(NULL, sensor->ctrl_handler, &c);
+		}
+	}
+
 	if (inst->is_isp_used && inst->is_bayer_raw) {
 		switch (ctrl->id) {
 		case V4L2_CID_BRIGHTNESS:

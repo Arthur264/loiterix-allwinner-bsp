@@ -31,8 +31,12 @@ MODULE_AUTHOR("cwh");
 MODULE_DESCRIPTION("A low-level driver for IMX415 sensors");
 MODULE_LICENSE("GPL");
 
-/* Waveshare IMX415-98 uses a 37.125 MHz INCK (dtoverlay clk-37125) */
-#define MCLK              37125000
+/*
+ * Waveshare IMX415-98 has its own 37.125 MHz oscillator. Request 24 MHz so
+ * vin_set_mclk_freq() keeps csi-master on sys24M instead of reparenting it
+ * onto pll-video0, which is shared with the running ISP/CSI clocks.
+ */
+#define MCLK              24000000
 #define V4L2_IDENT_SENSOR 0x0415
 
 
@@ -659,6 +663,148 @@ static struct regval_list sensor_10bit_1080p_regs[] = {
 	{0x3002, 0x00},
 };
 
+static struct regval_list sensor_10bit_1080p30_regs[] = {
+	{0x3000, 0x01},/* stanby */
+	{0x3001, 0x00},
+	{0x3008, 0x7F},
+	{0x300A, 0x5B},
+	{0x3020, 0x01},
+	{0x3021, 0x01},
+	{0x3022, 0x01},
+	{0x3024, 0x94},/* VMAX 4500: 1080p60 timing at 30fps */
+	{0x3025, 0x11},
+	{0x3026, 0x00},
+	{0x3028, 0x26},
+	{0x3029, 0x02},
+	{0x3031, 0x00},
+	{0x3032, 0x00},
+	{0x3033, 0x04},
+	{0x3050, 0x08},
+	{0x30C1, 0x00},
+	{0x30D9, 0x02},
+	{0x30DA, 0x01},
+	{0x3116, 0x24},
+	{0x3118, 0xC0},
+	{0x311A, 0xE0},
+	{0x311E, 0x24},
+	{0x32D4, 0x21},
+	{0x32EC, 0xA1},
+	{0x344C, 0x2B},
+	{0x344D, 0x01},
+	{0x344E, 0xED},
+	{0x344F, 0x01},
+	{0x3450, 0xF6},
+	{0x3451, 0x02},
+	{0x3452, 0x7F},
+	{0x3453, 0x03},
+	{0x358A, 0x04},
+	{0x35A1, 0x02},
+	{0x35EC, 0x27},
+	{0x35EE, 0x8D},
+	{0x35F0, 0x8D},
+	{0x35F2, 0x29},
+	{0x36BC, 0x0C},
+	{0x36CC, 0x53},
+	{0x36CD, 0x00},
+	{0x36CE, 0x3C},
+	{0x36D0, 0x8C},
+	{0x36D1, 0x00},
+	{0x36D2, 0x71},
+	{0x36D4, 0x3C},
+	{0x36D6, 0x53},
+	{0x36D7, 0x00},
+	{0x36D8, 0x71},
+	{0x36DA, 0x8C},
+	{0x36DB, 0x00},
+	{0x3701, 0x00},
+	{0x3720, 0x00},
+	{0x3724, 0x02},
+	{0x3726, 0x02},
+	{0x3732, 0x02},
+	{0x3734, 0x03},
+	{0x3736, 0x03},
+	{0x3742, 0x03},
+	{0x3862, 0xE0},
+	{0x38CC, 0x30},
+	{0x38CD, 0x2F},
+	{0x395C, 0x0C},
+	{0x39A4, 0x07},
+	{0x39A8, 0x32},
+	{0x39AA, 0x32},
+	{0x39AC, 0x32},
+	{0x39AE, 0x32},
+	{0x39B0, 0x32},
+	{0x39B2, 0x2F},
+	{0x39B4, 0x2D},
+	{0x39B6, 0x28},
+	{0x39B8, 0x30},
+	{0x39BA, 0x30},
+	{0x39BC, 0x30},
+	{0x39BE, 0x30},
+	{0x39C0, 0x30},
+	{0x39C2, 0x2E},
+	{0x39C4, 0x2B},
+	{0x39C6, 0x25},
+	{0x3A42, 0xD1},
+	{0x3A4C, 0x77},
+	{0x3AE0, 0x02},
+	{0x3AEC, 0x0C},
+	{0x3B00, 0x2E},
+	{0x3B06, 0x29},
+	{0x3B98, 0x25},
+	{0x3B99, 0x21},
+	{0x3B9B, 0x13},
+	{0x3B9C, 0x13},
+	{0x3B9D, 0x13},
+	{0x3B9E, 0x13},
+	{0x3BA1, 0x00},
+	{0x3BA2, 0x06},
+	{0x3BA3, 0x0B},
+	{0x3BA4, 0x10},
+	{0x3BA5, 0x14},
+	{0x3BA6, 0x18},
+	{0x3BA7, 0x1A},
+	{0x3BA8, 0x1A},
+	{0x3BA9, 0x1A},
+	{0x3BAC, 0xED},
+	{0x3BAD, 0x01},
+	{0x3BAE, 0xF6},
+	{0x3BAF, 0x02},
+	{0x3BB0, 0xA2},
+	{0x3BB1, 0x03},
+	{0x3BB2, 0xE0},
+	{0x3BB3, 0x03},
+	{0x3BB4, 0xE0},
+	{0x3BB5, 0x03},
+	{0x3BB6, 0xE0},
+	{0x3BB7, 0x03},
+	{0x3BB8, 0xE0},
+	{0x3BBA, 0xE0},
+	{0x3BBC, 0xDA},
+	{0x3BBE, 0x88},
+	{0x3BC0, 0x44},
+	{0x3BC2, 0x7B},
+	{0x3BC4, 0xA2},
+	{0x3BC8, 0xBD},
+	{0x3BCA, 0xBD},
+	{0x4004, 0x48},
+	{0x4005, 0x09},
+	{0x400C, 0x00},
+	{0x4018, 0x7F},
+	{0x401A, 0x37},
+	{0x401C, 0x37},
+	{0x401E, 0xF7},
+	{0x401F, 0x00},
+	{0x4020, 0x3F},
+	{0x4022, 0x6F},
+	{0x4024, 0x3F},
+	{0x4026, 0x5F},
+	{0x4028, 0x2F},
+	{0x4074, 0x01},
+	{0x3000, 0x00}, /* operation */
+	{0x3002, 0x00},
+};
+
 static struct regval_list sensor_10bit_20fps_regs[] = {
 /* ALL PIXEL  - 720Mbps - 24MHZ - 4K 20fps */
 	{0x3000, 0x01},/* stanby */
@@ -1104,25 +1250,43 @@ static int sensor_g_exp(struct v4l2_subdev *sd, __s32 *value)
 	return 0;
 }
 static int imx415_mipi_sensor_vts;
+
+#define IMX415_SHR0_MIN		8
+#define IMX415_GAIN_MAX_STEPS	240	/* 72 dB */
+
+/*
+ * Without the vendor ISP server nothing runs AE, and the register tables
+ * leave the analog gain at 0 dB, which gives a black picture indoors.
+ * At stream-on, unless exposure/gain was set (V4L2 ctrl or
+ * VIDIOC_VIN_SENSOR_EXP_GAIN), program full exposure (SHR0 = IMX415_SHR0_MIN)
+ * and this default gain, in 0.3 dB steps.
+ */
+#define IMX415_DEFAULT_GAIN	0x58	/* 26.4 dB */
+
 static int sensor_s_exp(struct v4l2_subdev *sd, unsigned int exp_val)
 {
-	data_type explow, exphigh, expmid;
-	int exptime;
 	struct sensor_info *info = to_state(sd);
-	if (exp_val) {
-		exptime = imx415_mipi_sensor_vts - (exp_val >> 4);
-		exphigh = (unsigned char)((0x00f0000 & exptime) >> 16);
-		expmid =  (unsigned char)((0x000ff00 & exptime) >> 8);
-		explow =  (unsigned char)((0x00000ff & exptime));
-		sensor_write(sd, 0x3050, explow);
-		sensor_write(sd, 0x3051, expmid);
-		sensor_write(sd, 0x3052, exphigh);
-		sensor_dbg("sensor_set_exp = %d %d line Done!\n", exp_val, exptime);
-	} else {
-			sensor_write(sd, 0x3050, 0x00);
-			sensor_write(sd, 0x3051, 0x00);
-			sensor_write(sd, 0x3052, 0x66);
-		}
+	int vts = imx415_mipi_sensor_vts;
+	int lines, shr0;
+
+	if (vts <= IMX415_SHR0_MIN)
+		return 0;
+
+	/* exp_val is in 1/16 line units; SHR0 = VMAX - exposure lines */
+	lines = exp_val >> 4;
+	if (lines < 1)
+		lines = 1;
+	shr0 = vts - lines;
+	if (shr0 < IMX415_SHR0_MIN)
+		shr0 = IMX415_SHR0_MIN;
+	if (shr0 > vts - 4)
+		shr0 = vts - 4;
+
+	sensor_write(sd, 0x3050, shr0 & 0xff);
+	sensor_write(sd, 0x3051, (shr0 >> 8) & 0xff);
+	sensor_write(sd, 0x3052, (shr0 >> 16) & 0x0f);
+	sensor_dbg("sensor_set_exp = %d, SHR0 = %d\n", exp_val, shr0);
+	info->exp = exp_val;
 
 	return 0;
 }
@@ -1179,23 +1343,25 @@ static unsigned int count;
 static int sensor_s_gain(struct v4l2_subdev *sd, int gain_val)
 {
 	struct sensor_info *info = to_state(sd);
-	int ret;
-	data_type rdval;
-	if (gain_val < 1 * 16)
-		gain_val = 16;
+	int g = gain_val;
+	int steps = 0;	/* 0.3 dB per step */
 
-	if (gain_val < 32 * 16) {
-		sensor_write(sd, 0x3090, gain2db[gain_val - 16]);
-		sensor_write(sd, 0x3091, 0);
-	} else if (gain_val < 1024 * 16) {
-		sensor_write(sd, 0x3090, gain2db[(gain_val>>5) - 16] + 100);
-		sensor_write(sd, 0x3091, 0);
-	} else {
-		sensor_write(sd, 0x3090, (gain2db[(gain_val>>10) - 16] + 200) && 0xff);
-		sensor_write(sd, 0x3091, (gain2db[(gain_val>>10) - 16] + 200) >> 8);
+	if (g < 1 * 16)
+		g = 16;
+	/* gain2db[] covers 1x..32x (0..100 steps); each extra 32x is +100 */
+	while (g >= 32 * 16 && steps < 200) {
+		g >>= 5;
+		steps += 100;
 	}
+	if (g >= 32 * 16)
+		g = 32 * 16 - 1;
+	steps += gain2db[g - 16];
+	if (steps > IMX415_GAIN_MAX_STEPS)
+		steps = IMX415_GAIN_MAX_STEPS;
 
-	sensor_dbg("sensor_set_gain = %d, Done!\n", gain_val);
+	sensor_write(sd, 0x3090, steps & 0xff);
+	sensor_write(sd, 0x3091, (steps >> 8) & 0x07);
+	sensor_dbg("sensor_set_gain = %d (%d steps), Done!\n", gain_val, steps);
 	info->gain = gain_val;
 
 	return 0;
@@ -1205,7 +1371,7 @@ static int sensor_s_gain(struct v4l2_subdev *sd, int gain_val)
 static int sensor_s_exp_gain(struct v4l2_subdev *sd,
 			     struct sensor_exp_gain *exp_gain)
 {
-	int shutter, frame_length;
+	int shutter;
 	struct sensor_info *info = to_state(sd);
 	int exp_val, gain_val;
 	exp_val = exp_gain->exp_val;
@@ -1220,14 +1386,11 @@ static int sensor_s_exp_gain(struct v4l2_subdev *sd,
 		exp_val = 0xfffff;
 
 	shutter = exp_val / 16;
-	if (shutter > imx415_mipi_sensor_vts - 4)
-		frame_length = shutter + 4;
-	else
-		frame_length = imx415_mipi_sensor_vts;
+	if (shutter > imx415_mipi_sensor_vts - IMX415_SHR0_MIN)
+		shutter = imx415_mipi_sensor_vts - IMX415_SHR0_MIN;
+	exp_val = shutter * 16;
 
-	sensor_write(sd, 0x0341, (frame_length & 0xff));
-	sensor_write(sd, 0x0340, (frame_length >> 8));
-	sensor_write(sd, 0x3001, 0x01);
+	sensor_write(sd, 0x3001, 0x01);	/* REGHOLD */
 	sensor_s_exp(sd, exp_val);
 	sensor_s_gain(sd, gain_val);
 	sensor_write(sd, 0x3001, 0x00);
@@ -1294,13 +1457,16 @@ static int sensor_power(struct v4l2_subdev *sd, int on)
 		usleep_range(2000, 2200);
 		vin_set_pmu_channel(sd, AVDD, ON);
 		vin_set_pmu_channel(sd, DVDD, ON);
-		vin_gpio_write(sd, RESET, CSI_GPIO_HIGH);
-		vin_gpio_write(sd, PWDN, CSI_GPIO_HIGH);
-		usleep_range(10000, 12000);
+		usleep_range(1000, 1200);
+		/* IMX415 needs INCK running before XCLR (RESET) is released */
 		vin_set_mclk_freq(sd, MCLK);
 		usleep_range(100, 120);
 		vin_set_mclk(sd, ON);
-		usleep_range(10000, 12000);
+		usleep_range(1000, 1200);
+		/* Cubie A7Z PE8: high = sensor running */
+		vin_gpio_write(sd, PWDN, CSI_GPIO_HIGH);
+		vin_gpio_write(sd, RESET, CSI_GPIO_HIGH);
+		usleep_range(20000, 25000);
 		cci_unlock(sd);
 		break;
 	case PWR_OFF:
@@ -1387,7 +1553,11 @@ static int sensor_init(struct v4l2_subdev *sd, u32 val)
 	info->height = 2160;
 	info->hflip = 0;
 	info->vflip = 0;
-	info->gain = 0;
+	/*
+	 * Keep info->exp/gain across power cycles: a V4L2 GAIN/EXPOSURE
+	 * ctrl set before stream-on must survive this power-on so
+	 * imx415_apply_exp_gain() can program it. Cleared at probe only.
+	 */
 
 	info->tpf.numerator = 1;
 	info->tpf.denominator = 30;	/* 30fps */
@@ -1486,16 +1656,16 @@ static struct sensor_win_size sensor_win_sizes[] = {
 	 .set_size = NULL,
 	 },
 	 #endif
-	{  /* 1920*1080 30fps 10bit */
+	{  /* 1920*1080 60fps 10bit (37.125MHz: HMAX 0x226, VMAX 0x8CA) */
 	 .width = 1920,
 	 .height = 1080,
 	 .hoffset = 0,
 	 .voffset = 0,
-	 .hts = 1066,
-	 .vts = 2251,
+	 .hts = 550,
+	 .vts = 2250,
 	 .pclk = 72 * 1000 * 1000,
 	 .mipi_bps = 720 * 1000 * 1000,
-	 .fps_fixed = 30,
+	 .fps_fixed = 60,
 	 .bin_factor = 1,
 	 .intg_min = 8 << 4,
 	 .intg_max = (2251 - 4) << 4,
@@ -1503,6 +1673,25 @@ static struct sensor_win_size sensor_win_sizes[] = {
 	 .gain_max = 5631<<4,
 	 .regs = sensor_10bit_1080p_regs,
 	 .regs_size = ARRAY_SIZE(sensor_10bit_1080p_regs),
+	 .set_size = NULL,
+	 },
+	{  /* 1920*1080 30fps 10bit (1080p60 timing, VMAX 4500) */
+	 .width = 1920,
+	 .height = 1080,
+	 .hoffset = 0,
+	 .voffset = 0,
+	 .hts = 550,
+	 .vts = 4500,
+	 .pclk = 72 * 1000 * 1000,
+	 .mipi_bps = 720 * 1000 * 1000,
+	 .fps_fixed = 30,
+	 .bin_factor = 1,
+	 .intg_min = 8 << 4,
+	 .intg_max = (4500 - 4) << 4,
+	 .gain_min = 1<<4,
+	 .gain_max = 5631<<4,
+	 .regs = sensor_10bit_1080p30_regs,
+	 .regs_size = ARRAY_SIZE(sensor_10bit_1080p30_regs),
 	 .set_size = NULL,
 	 },
 	 /*
@@ -1647,13 +1836,37 @@ static int sensor_s_ctrl(struct v4l2_ctrl *ctrl)
 	return -EINVAL;
 }
 
+/*
+ * Program the current exposure/gain: values set via ctrl/ioctl (cached in
+ * info->exp/gain) or full exposure + IMX415_DEFAULT_GAIN.
+ */
+static void imx415_apply_exp_gain(struct sensor_info *info)
+{
+	struct v4l2_subdev *sd = &info->sd;
+
+	sensor_write(sd, 0x3001, 0x01);	/* REGHOLD */
+	if (info->exp) {
+		sensor_s_exp(sd, info->exp);
+	} else {
+		sensor_write(sd, 0x3050, IMX415_SHR0_MIN & 0xff);
+		sensor_write(sd, 0x3051, (IMX415_SHR0_MIN >> 8) & 0xff);
+		sensor_write(sd, 0x3052, (IMX415_SHR0_MIN >> 16) & 0x0f);
+	}
+	if (info->gain) {
+		sensor_s_gain(sd, info->gain);
+	} else {
+		sensor_write(sd, 0x3090, IMX415_DEFAULT_GAIN & 0xff);
+		sensor_write(sd, 0x3091, (IMX415_DEFAULT_GAIN >> 8) & 0x07);
+	}
+	sensor_write(sd, 0x3001, 0x00);
+}
+
 static int sensor_reg_init(struct sensor_info *info)
 {
 	int ret;
 	struct v4l2_subdev *sd = &info->sd;
 	struct sensor_format_struct *sensor_fmt = info->fmt;
 	struct sensor_win_size *wsize = info->current_wins;
-	data_type rdval = 0;
 	/* struct sensor_exp_gain exp_gain; */
 
 	ret = sensor_write_array(sd, sensor_default_regs,
@@ -1686,9 +1899,11 @@ static int sensor_reg_init(struct sensor_info *info)
 	info->height = wsize->height;
 	imx415_mipi_sensor_vts = wsize->vts;
 
-	/* exp_gain.exp_val = 12480; */
-	/* exp_gain.gain_val = 48; */
-	/* sensor_s_exp_gain(sd, &exp_gain); */
+	/*
+	 * The register tables reset SHR0/gain. Re-apply explicitly set values,
+	 * otherwise program full exposure and the default gain (see above).
+	 */
+	imx415_apply_exp_gain(info);
 
 	sensor_print("s_fmt set width = %d, height = %d\n", wsize->width,
 		     wsize->height);
@@ -1699,6 +1914,11 @@ static int sensor_reg_init(struct sensor_info *info)
 static int sensor_s_stream(struct v4l2_subdev *sd, int enable)
 {
 	struct sensor_info *info = to_state(sd);
+
+	if (!info->current_wins || !info->fmt) {
+		sensor_err("%s: missing wins/fmt\n", __func__);
+		return -EINVAL;
+	}
 
 	sensor_print("%s on = %d, %d*%d %x\n", __func__, enable,
 		     info->current_wins->width,
@@ -1773,15 +1993,18 @@ static int sensor_init_controls(struct v4l2_subdev *sd, const struct v4l2_ctrl_o
 
 	  v4l2_ctrl_handler_init(handler, 2);
 
-	  ctrl = v4l2_ctrl_new_std(handler, ops, V4L2_CID_GAIN, 1 * 1600,
-				256 * 1600, 1, 1 * 1600);
+	  /* same units/range as the vin video node ctrl: 16 = 1x */
+	  ctrl = v4l2_ctrl_new_std(handler, ops, V4L2_CID_GAIN, 16,
+				6000 * 16, 1, 16);
 	  if (ctrl != NULL)
-		ctrl->flags |= V4L2_CTRL_FLAG_VOLATILE;
+		ctrl->flags |= V4L2_CTRL_FLAG_VOLATILE |
+			       V4L2_CTRL_FLAG_EXECUTE_ON_WRITE;
 
 	  ctrl = v4l2_ctrl_new_std(handler, ops, V4L2_CID_EXPOSURE, 0,
 				65536 * 16, 1, 0);
 	  if (ctrl != NULL)
-		ctrl->flags |= V4L2_CTRL_FLAG_VOLATILE;
+		ctrl->flags |= V4L2_CTRL_FLAG_VOLATILE |
+			       V4L2_CTRL_FLAG_EXECUTE_ON_WRITE;
 
 	  if (handler->error) {
 		ret = handler->error;
@@ -1835,6 +2058,8 @@ static int sensor_probe(struct i2c_client *client)
 	info->af_first_flag = 1;
 	info->exp = 0;
 	info->gain = 0;
+	/* allow I2C detect in sensor_init before the entity is in use */
+	info->not_detect_use_count = 1;
 
 	return 0;
 }
