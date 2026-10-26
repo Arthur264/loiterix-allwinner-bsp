@@ -177,6 +177,7 @@ int _dw_i2cm_write(unsigned char *buf, unsigned int length)
 			hdmi_err("dw i2c write error, retry count: %d\n", retry_cnt);
 			if (retry_cnt) {
 				length++;
+				buf--;
 				i2cm->slave_reg--;
 				retry_cnt--;
 				continue;
