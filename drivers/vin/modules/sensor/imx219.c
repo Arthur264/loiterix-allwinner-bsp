@@ -322,6 +322,8 @@ static int sensor_s_exp_gain(struct v4l2_subdev *sd,
 
 	exp_val = exp_gain->exp_val;
 	gain_val = exp_gain->gain_val;
+	if (exp_val > ((imx219_sensor_vts - 4) << 4))
+		exp_val = (imx219_sensor_vts - 4) << 4;
 
 	if (gain_val < 1 * 16)
 		gain_val = 16;
@@ -911,7 +913,7 @@ static struct sensor_win_size sensor_win_sizes[] = {
 	 .fps_fixed = 30,
 	 .bin_factor = 2,
 	 .intg_min = 1 << 4,
-	 .intg_max = (2607 - 4) << 4,
+	 .intg_max = (1766 - 4) << 4,
 	 .gain_min = 1 << 4,
 	 .gain_max = 10 << 4,
 	 .regs = sensor_1080p_regs,
@@ -1005,7 +1007,7 @@ static int sensor_s_stream(struct v4l2_subdev *sd, int enable)
 		  info->current_wins->height, info->fmt->mbus_code);
 
 	if (!enable)
-		return 0;
+		return sensor_write(sd, 0x0100, 0x00);
 	return sensor_reg_init(info);
 }
 
@@ -1161,7 +1163,7 @@ static int sensor_probe(struct i2c_client *client)
 	info->fmt = &sensor_formats[0];
 	info->fmt_pt = &sensor_formats[0];
 	info->win_pt = &sensor_win_sizes[0];
-	info->time_hs  = 0x25;
+	info->time_hs  = 0x2c;
 	info->fmt_num = N_FMTS;
 	info->win_size_num = N_WIN_SIZES;
 	info->sensor_field = V4L2_FIELD_NONE;

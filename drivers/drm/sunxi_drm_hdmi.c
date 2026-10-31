@@ -1484,7 +1484,7 @@ static int _sunxi_drv_hdmi_thread(void *parg)
 		if (temp_hpd == _sunxi_drv_hdmi_hpd_get(hdmi))
 			goto next_loop;
 
-		mdelay(1500);
+		mdelay(50);
 
 		temp_hpd = sunxi_hdmi_get_hpd();
 		if (temp_hpd == _sunxi_drv_hdmi_hpd_get(hdmi))

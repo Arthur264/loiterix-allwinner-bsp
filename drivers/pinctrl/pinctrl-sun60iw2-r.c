@@ -4,11 +4,15 @@
  * Copyright (c) 2024 geyoupengs@allwinnertech.com
  */
 
+#include <linux/irq.h>
+#include <linux/irqdomain.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
 #include <linux/pinctrl/pinctrl.h>
+#include <linux/pm.h>
+#include <sunxi-sip.h>
 #include "pinctrl-sunxi.h"
 
 #define SUNXI_R_PINCTRL_VERSION          "0.0.2"
@@ -225,6 +229,40 @@ static const unsigned int sun60iw2_r_bank_base[] = {
 	SUNXI_BANK_OFFSET('M', 'L'),
 };
 
+static int sun60iw2_r_sync_wake(struct device *dev, bool on)
+{
+#if IS_ENABLED(CONFIG_ARM) || IS_ENABLED(CONFIG_ARM64)
+	struct sunxi_pinctrl *pctl = dev_get_drvdata(dev);
+	unsigned int hwirq;
+
+	for (hwirq = 0; hwirq < pctl->desc->irq_banks * IRQ_PER_BANK; hwirq++) {
+		struct irq_data *data;
+		struct irq_data *parent;
+
+		data = irq_get_irq_data(irq_find_mapping(pctl->domain, hwirq));
+		if (!data || !irqd_is_wakeup_set(data))
+			continue;
+		parent = irq_get_irq_data(pctl->irq[hwirq / IRQ_PER_BANK]);
+		invoke_scp_fn_smc(on ? SET_WAKEUP_SRC : CLEAR_WAKEUP_SRC,
+				  SET_SEC_WAKEUP_SOURCE(parent->hwirq, hwirq), 0, 0);
+	}
+#endif
+	return 0;
+}
+
+static int sun60iw2_r_suspend_noirq(struct device *dev)
+{
+	return sun60iw2_r_sync_wake(dev, true);
+}
+
+static int sun60iw2_r_resume_noirq(struct device *dev)
+{
+	return sun60iw2_r_sync_wake(dev, false);
+}
+
+static DEFINE_NOIRQ_DEV_PM_OPS(sun60iw2_r_pm_ops,
+			     sun60iw2_r_suspend_noirq, sun60iw2_r_resume_noirq);
+
 static const struct sunxi_pinctrl_desc sun60iw2_r_pinctrl_data = {
 	.pins = sun60iw2_r_pins,
 	.npins = ARRAY_SIZE(sun60iw2_r_pins),
@@ -255,6 +293,7 @@ static struct platform_driver sun60iw2_r_pinctrl_driver = {
 	.driver	= {
 		.name		= "sun60iw2-r-pinctrl",
 		.of_match_table	= sun60iw2_r_pinctrl_match,
+		.pm		= pm_sleep_ptr(&sun60iw2_r_pm_ops),
 	},
 };
 

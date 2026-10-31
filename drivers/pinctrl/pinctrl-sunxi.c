@@ -2121,6 +2121,10 @@ static int sunxi_pinctrl_irq_set_wake(struct irq_data *d, unsigned int on)
 	__attribute__((unused))struct sunxi_pinctrl *pctl = irq_data_get_irq_chip_data(d);
 	__attribute__((unused)) unsigned long bank = d->hwirq / IRQ_PER_BANK;
 	__attribute__((unused)) struct irq_data *bank_irq_d = irq_get_irq_data(pctl->irq[bank]);
+
+	/* SUN60 RPIO arms SCP after non-wake IRQs have been masked. */
+	if (of_device_is_compatible(pctl->dev->of_node, "allwinner,sun60iw2-r-pinctrl"))
+		return 0;
 #if IS_ENABLED(CONFIG_ARM) || IS_ENABLED(CONFIG_ARM64)
 	invoke_scp_fn_smc(on ? SET_WAKEUP_SRC : CLEAR_WAKEUP_SRC,
 			  SET_SEC_WAKEUP_SOURCE(bank_irq_d->hwirq, d->hwirq),
