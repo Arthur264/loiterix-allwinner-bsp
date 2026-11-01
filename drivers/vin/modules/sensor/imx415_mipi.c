@@ -1263,6 +1263,34 @@ static int imx415_mipi_sensor_vts;
  */
 #define IMX415_DEFAULT_GAIN	0x58	/* 26.4 dB */
 
+/*
+ * Last SHR0 / gain steps written to the sensor (-1 = unknown, write always).
+ * libisp calls VIDIOC_VIN_SENSOR_EXP_GAIN every frame, and the bus is a
+ * bit-banged i2c-gpio (busy-wait udelay): skip writes when nothing changed.
+ */
+static int imx415_last_shr0 = -1;
+static int imx415_last_gain_steps = -1;
+
+/*
+ * Write consecutive 8-bit registers starting at addr in one I2C transaction
+ * (IMX415 auto-increments the register address). On failure fall back to
+ * single writes so behaviour matches the old code.
+ */
+static int imx415_write_burst(struct v4l2_subdev *sd, unsigned short addr,
+			      unsigned char *vals, unsigned int n)
+{
+	unsigned int i;
+	int ret;
+
+	if (cci_write_a16_d8_continuous_helper(sd, addr, vals, n) == 0)
+		return 0;
+	ret = 0;
+	for (i = 0; i < n; i++)
+		if (sensor_write(sd, addr + i, vals[i]) && !ret)
+			ret = -EIO;
+	return ret;
+}
+
 static int sensor_s_exp(struct v4l2_subdev *sd, unsigned int exp_val)
 {
 	struct sensor_info *info = to_state(sd);
@@ -1282,9 +1310,14 @@ static int sensor_s_exp(struct v4l2_subdev *sd, unsigned int exp_val)
 	if (shr0 > vts - 4)
 		shr0 = vts - 4;
 
-	sensor_write(sd, 0x3050, shr0 & 0xff);
-	sensor_write(sd, 0x3051, (shr0 >> 8) & 0xff);
-	sensor_write(sd, 0x3052, (shr0 >> 16) & 0x0f);
+	if (shr0 != imx415_last_shr0) {
+		/* SHR0 0x3050..0x3052 in one auto-increment transaction */
+		unsigned char v[3] = {shr0 & 0xff, (shr0 >> 8) & 0xff,
+				      (shr0 >> 16) & 0x0f};
+
+		if (imx415_write_burst(sd, 0x3050, v, sizeof(v)) == 0)
+			imx415_last_shr0 = shr0;
+	}
 	sensor_dbg("sensor_set_exp = %d, SHR0 = %d\n", exp_val, shr0);
 	info->exp = exp_val;
 
@@ -1359,8 +1392,13 @@ static int sensor_s_gain(struct v4l2_subdev *sd, int gain_val)
 	if (steps > IMX415_GAIN_MAX_STEPS)
 		steps = IMX415_GAIN_MAX_STEPS;
 
-	sensor_write(sd, 0x3090, steps & 0xff);
-	sensor_write(sd, 0x3091, (steps >> 8) & 0x07);
+	if (steps != imx415_last_gain_steps) {
+		/* GAIN_PCG_0 0x3090..0x3091 in one auto-increment transaction */
+		unsigned char v[2] = {steps & 0xff, (steps >> 8) & 0x07};
+
+		if (imx415_write_burst(sd, 0x3090, v, sizeof(v)) == 0)
+			imx415_last_gain_steps = steps;
+	}
 	sensor_dbg("sensor_set_gain = %d (%d steps), Done!\n", gain_val, steps);
 	info->gain = gain_val;
 
@@ -1389,6 +1427,11 @@ static int sensor_s_exp_gain(struct v4l2_subdev *sd,
 	if (shutter > imx415_mipi_sensor_vts - IMX415_SHR0_MIN)
 		shutter = imx415_mipi_sensor_vts - IMX415_SHR0_MIN;
 	exp_val = shutter * 16;
+
+	/* Nothing to do (and no REGHOLD) when the sensor already has these. */
+	if (info->exp == exp_val && info->gain == gain_val &&
+	    imx415_last_shr0 >= 0 && imx415_last_gain_steps >= 0)
+		return 0;
 
 	sensor_write(sd, 0x3001, 0x01);	/* REGHOLD */
 	sensor_s_exp(sd, exp_val);
@@ -1843,6 +1886,10 @@ static int sensor_s_ctrl(struct v4l2_ctrl *ctrl)
 static void imx415_apply_exp_gain(struct sensor_info *info)
 {
 	struct v4l2_subdev *sd = &info->sd;
+
+	/* Register tables just reset the sensor: force the next writes. */
+	imx415_last_shr0 = -1;
+	imx415_last_gain_steps = -1;
 
 	sensor_write(sd, 0x3001, 0x01);	/* REGHOLD */
 	if (info->exp) {
