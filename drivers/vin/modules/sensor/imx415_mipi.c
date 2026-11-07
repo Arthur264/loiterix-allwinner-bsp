@@ -1444,6 +1444,11 @@ static int sensor_s_exp_gain(struct v4l2_subdev *sd,
 	return 0;
 }
 
+/*
+ * Soft standby / resume. 0x3000 bit0 = STANDBY, 0x3002 = XMSTA.
+ * Stopping master then entering standby drops the MIPI HS stream so the
+ * receiver can re-lock when we exit standby again.
+ */
 static int sensor_s_sw_stby(struct v4l2_subdev *sd, int on_off)
 {
 	int ret;
@@ -1453,11 +1458,25 @@ static int sensor_s_sw_stby(struct v4l2_subdev *sd, int on_off)
 	if (ret != 0)
 		return ret;
 
-	if (on_off == STBY_ON)
-		ret = sensor_write(sd, 0x0300, rdval & 0xfe);
-	else
-		ret = sensor_write(sd, 0x0300, rdval | 0x01);
+	if (on_off == STBY_ON) {
+		ret = sensor_write(sd, 0x3002, 0x01);
+		if (ret)
+			return ret;
+		usleep_range(1000, 1200);
+		ret = sensor_write(sd, 0x3000, rdval | 0x01);
+	} else {
+		ret = sensor_write(sd, 0x3000, rdval & 0xfe);
+		if (ret)
+			return ret;
+		usleep_range(1000, 1200);
+		ret = sensor_write(sd, 0x3002, 0x00);
+	}
 	return ret;
+}
+
+static int sensor_s_stby(struct v4l2_subdev *sd, int *on_off)
+{
+	return sensor_s_sw_stby(sd, *on_off);
 }
 
 /*
@@ -1633,6 +1652,9 @@ static long sensor_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 	case VIDIOC_VIN_SENSOR_CFG_REQ:
 		sensor_cfg_req(sd, (struct sensor_config *)arg);
 		break;
+	case SET_SENSOR_STANDBY:
+		ret = sensor_s_stby(sd, (int *)arg);
+		break;
 	default:
 		return -EINVAL;
 	}
@@ -1669,6 +1691,7 @@ static struct sensor_win_size sensor_win_sizes[] = {
 	 .pclk = 72 * 1000 * 1000,
 	 .mipi_bps = 720 * 1000 * 1000,
 	 .fps_fixed = 20,
+	 .lp_mode = SENSOR_LP_DISCONTINUOUS,
 	 .bin_factor = 1,
 	 .intg_min = 8<<4,
 	 .intg_max = (3375 - 4) << 4,
@@ -1689,6 +1712,7 @@ static struct sensor_win_size sensor_win_sizes[] = {
 	 .pclk = 74250000,
 	 .mipi_bps = 891 * 1000 * 1000,
 	 .fps_fixed = 30,
+	 .lp_mode = SENSOR_LP_DISCONTINUOUS,
 	 .bin_factor = 1,
 	 .intg_min = 8 << 4,
 	 .intg_max = (2250 - 4) << 4,
@@ -1709,6 +1733,7 @@ static struct sensor_win_size sensor_win_sizes[] = {
 	 .pclk = 72 * 1000 * 1000,
 	 .mipi_bps = 720 * 1000 * 1000,
 	 .fps_fixed = 60,
+	 .lp_mode = SENSOR_LP_DISCONTINUOUS,
 	 .bin_factor = 1,
 	 .intg_min = 8 << 4,
 	 .intg_max = (2251 - 4) << 4,
@@ -1728,6 +1753,7 @@ static struct sensor_win_size sensor_win_sizes[] = {
 	 .pclk = 72 * 1000 * 1000,
 	 .mipi_bps = 720 * 1000 * 1000,
 	 .fps_fixed = 30,
+	 .lp_mode = SENSOR_LP_DISCONTINUOUS,
 	 .bin_factor = 1,
 	 .intg_min = 8 << 4,
 	 .intg_max = (4500 - 4) << 4,
@@ -1961,6 +1987,7 @@ static int sensor_reg_init(struct sensor_info *info)
 static int sensor_s_stream(struct v4l2_subdev *sd, int enable)
 {
 	struct sensor_info *info = to_state(sd);
+	int ret;
 
 	if (!info->current_wins || !info->fmt) {
 		sensor_err("%s: missing wins/fmt\n", __func__);
@@ -1971,13 +1998,16 @@ static int sensor_s_stream(struct v4l2_subdev *sd, int enable)
 		     info->current_wins->width,
 		     info->current_wins->height, info->fmt->mbus_code);
 	if (!enable) {
+		ret = sensor_s_sw_stby(sd, STBY_ON);
+		if (ret < 0)
+			sensor_err("stream-off soft stby failed!\n");
 		vin_gpio_set_status(sd, SM_HS, 0);
 		vin_gpio_set_status(sd, SM_VS, 0);
-			return 0;
-	} else {
-		vin_gpio_set_status(sd, SM_VS, 3);
-		vin_gpio_set_status(sd, SM_HS, 3);
+		return 0;
 	}
+
+	vin_gpio_set_status(sd, SM_VS, 3);
+	vin_gpio_set_status(sd, SM_HS, 3);
 
 	return sensor_reg_init(info);
 }

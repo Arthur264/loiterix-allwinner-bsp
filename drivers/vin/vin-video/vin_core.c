@@ -1408,6 +1408,8 @@ static irqreturn_t vin_isr(int irq, void *priv)
 	if (status.vsync_trig) {
 		csic_dma_int_clear_status(vinc->vipp_sel, DMA_INT_VSYNC_TRIG);
 		vinc->vin_status.frame_cnt++;
+		/* Link is producing frames again — reset recover budget */
+		vinc->link_recover_cnt = 0;
 		csic_prs_input_para_get(vinc->csi_sel, vinc->isp_tx_ch, &vinc->vin_status.prs_in);
 		vin_vsync_isr(cap);
 #ifdef CSIC_SDRAM_DFS
@@ -1591,6 +1593,8 @@ vsync_end:
 	if (status.vsync_trig) {
 		csic_dma_int_clear_status(vinc->vipp_sel, DMA_INT_VSYNC_TRIG);
 		vinc->vin_status.frame_cnt++;
+		/* Link is producing frames again — reset recover budget */
+		vinc->link_recover_cnt = 0;
 		csic_prs_input_para_get(vinc->csi_sel, 0, &vinc->vin_status.prs_in);
 		vin_vsync_isr(cap);
 		vin_get_rest_buf_cnt(vinc);

@@ -112,6 +112,7 @@ struct vin_core {
 	unsigned char stream_idx;
 	unsigned char fps_ds;
 	unsigned char use_timer;
+	unsigned char link_recover_cnt; /* consecutive MIPI/link recoveries without a frame */
 	unsigned char large_image;/* 2:get merge yuv, 1: get pattern raw (save in kernel), 0: normal */
 	unsigned int rear_sensor;
 	unsigned int front_sensor;

@@ -121,6 +121,53 @@ void __vin_s_stream_handle(struct work_struct *work)
 	vin_log(VIN_LOG_VIDEO, "%s done, id = %d!\n", __func__, cap->vinc->id);
 }
 
+#define VIN_LINK_RECOVER_TIMEOUT_MS	2000
+#define VIN_LINK_RECOVER_MAX		5
+
+/*
+ * Frame watchdog: reuse sunxi_isp_reset(). With sensor lp_mode set that
+ * already resets CSI/ISP/VIPP and schedules s_sensor_stby_task
+ * (SET_SENSOR_STANDBY on→off) to re-train MIPI.
+ */
+static void __vin_pipeline_reset_handle(struct work_struct *work)
+{
+	struct vin_vid_cap *cap =
+		container_of(work, struct vin_vid_cap, pipeline_reset_task);
+	struct vin_core *vinc = cap->vinc;
+	struct isp_dev *isp;
+
+	if (!vin_streaming(cap) || !cap->pipe.sd[VIN_IND_ISP])
+		return;
+
+	if (vinc->link_recover_cnt >= VIN_LINK_RECOVER_MAX) {
+		vin_err("video%d: link recover gave up after %u attempts\n",
+			vinc->id, vinc->link_recover_cnt);
+		return;
+	}
+
+	vinc->link_recover_cnt++;
+	vin_warn("video%d: no frames for %dms, isp reset (%u/%u), frame_cnt=%u\n",
+		 vinc->id, VIN_LINK_RECOVER_TIMEOUT_MS, vinc->link_recover_cnt,
+		 VIN_LINK_RECOVER_MAX, vinc->vin_status.frame_cnt);
+
+	isp = container_of(cap->pipe.sd[VIN_IND_ISP], struct isp_dev, subdev);
+	/* Ensure existing ISP sensor-standby path runs after pipeline reset */
+	isp->sensor_lp_mode = 1;
+	sunxi_isp_reset(isp);
+
+	vin_timer_update(vinc, VIN_LINK_RECOVER_TIMEOUT_MS);
+}
+
+static void vin_timer_handler(struct timer_list *t)
+{
+	struct vin_core *vinc = from_timer(vinc, t, timer_for_reset);
+
+	if (!vin_streaming(&vinc->vid_cap))
+		return;
+
+	schedule_work(&vinc->vid_cap.pipeline_reset_task);
+}
+
 /* make sure addr was update to register */
 #if defined CSIC_DMA_VER_140_000
 static int __check_bk_bufaddr(struct vin_core *vinc, struct vin_addr *paddr)
@@ -2052,17 +2099,33 @@ static int vidioc_overlay(struct file *file, void *__fh, unsigned int on)
 
 int vin_timer_init(struct vin_core *vinc)
 {
+	if (vinc->use_timer)
+		return 0;
+
+	timer_setup(&vinc->timer_for_reset, vin_timer_handler, 0);
+	vinc->use_timer = 1;
+	vinc->link_recover_cnt = 0;
+	vin_timer_update(vinc, VIN_LINK_RECOVER_TIMEOUT_MS);
 	return 0;
 }
 
 void vin_timer_del(struct vin_core *vinc)
 {
+	if (!vinc->use_timer)
+		return;
 
+	del_timer_sync(&vinc->timer_for_reset);
+	cancel_work_sync(&vinc->vid_cap.pipeline_reset_task);
+	vinc->use_timer = 0;
+	vinc->link_recover_cnt = 0;
 }
 
 void vin_timer_update(struct vin_core *vinc, int ms)
 {
+	if (!vinc->use_timer)
+		return;
 
+	mod_timer(&vinc->timer_for_reset, jiffies + msecs_to_jiffies(ms));
 }
 
 static int __vin_sensor_setup_link(struct vin_core *vinc, struct modules_config *module,
@@ -5949,6 +6012,7 @@ int vin_init_video(struct v4l2_device *v4l2_dev, struct vin_vid_cap *cap)
 		return ret;
 
 	INIT_WORK(&cap->s_stream_task, __vin_s_stream_handle);
+	INIT_WORK(&cap->pipeline_reset_task, __vin_pipeline_reset_handle);
 
 	cap->state = 0;
 	cap->registered = 1;
